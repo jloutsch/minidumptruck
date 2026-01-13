@@ -1,0 +1,20 @@
+# Build artifacts
+.build/
+.swiftpm/
+DerivedData/
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+
+# Generated files
+AppIcon.iconset/
+generate_icon.swift
+
+# macOS
+.DS_Store
+*.dmg
+
+# App bundle (built artifact)
+MiniDumpTruck.app/
