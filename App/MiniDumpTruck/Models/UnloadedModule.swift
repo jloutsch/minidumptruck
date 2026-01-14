@@ -77,9 +77,21 @@ public struct UnloadedModuleList {
         guard let numberOfEntries = data.readUInt32(at: rva + 8),
               numberOfEntries <= Self.maxModules else { return nil }
 
+        // Validate entry size is reasonable (must be at least minimum struct size)
+        guard sizeOfEntry >= UInt32(UnloadedModule.size) else { return nil }
+        // Prevent infinite loop with zero entry size
+        guard sizeOfEntry > 0 else { return nil }
+
         var modules: [UnloadedModule] = []
         let entriesOffset = rva + Int(sizeOfHeader)
         let entrySize = Int(sizeOfEntry)
+
+        // Validate entries fit within file bounds (with overflow protection)
+        let entryCount = Int(numberOfEntries)
+        let (bytesNeeded, mulOverflow) = entryCount.multipliedReportingOverflow(by: entrySize)
+        guard !mulOverflow else { return nil }
+        let (entriesEnd, addOverflow) = entriesOffset.addingReportingOverflow(bytesNeeded)
+        guard !addOverflow, entriesEnd <= data.count else { return nil }
 
         for i in 0..<Int(numberOfEntries) {
             let entryOffset = entriesOffset + (i * entrySize)

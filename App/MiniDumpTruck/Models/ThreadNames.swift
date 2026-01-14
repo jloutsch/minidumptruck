@@ -43,18 +43,26 @@ public struct ThreadNameList {
         var namesByThreadId: [UInt32: String] = [:]
 
         let entriesOffset = rva + 4  // After count field
+        let entryCount = Int(numberOfEntries)
 
-        for i in 0..<Int(numberOfEntries) {
+        // Validate entries fit within file bounds (with overflow protection)
+        let (bytesNeeded, mulOverflow) = entryCount.multipliedReportingOverflow(by: ThreadNameEntry.size)
+        guard !mulOverflow else { return nil }
+        let (entriesEnd, addOverflow) = entriesOffset.addingReportingOverflow(bytesNeeded)
+        guard !addOverflow, entriesEnd <= data.count else { return nil }
+
+        for i in 0..<entryCount {
             let entryOffset = entriesOffset + (i * ThreadNameEntry.size)
 
             guard var entry = ThreadNameEntry(from: data, at: entryOffset) else {
                 continue
             }
 
-            // Read thread name from RVA
-            if entry.threadNameRva != 0 && entry.threadNameRva <= UInt64(UInt32.max) {
+            // Read thread name from RVA (safe conversion without truncation)
+            if entry.threadNameRva != 0,
+               let rva32 = UInt32(exactly: entry.threadNameRva) {
                 // The name is stored as a MINIDUMP_STRING (length + UTF-16LE data)
-                if let name = data.readUTF16String(at: UInt32(truncatingIfNeeded: entry.threadNameRva)) {
+                if let name = data.readUTF16String(at: rva32) {
                     entry.setName(name)
                     namesByThreadId[entry.threadId] = name
                 }

@@ -128,7 +128,7 @@ public struct MemoryInfo: Identifiable {
 /// Collection of memory regions from Memory64ListStream
 public struct Memory64List {
     /// Maximum allowed memory regions to prevent DoS from malformed dumps
-    public static let maxRegions: UInt64 = 100_000
+    public static let maxRegions: UInt64 = 10_000
 
     public let regions: [MemoryRegion]
     public let baseRva: UInt64  // File offset where memory data starts
@@ -154,9 +154,13 @@ public struct Memory64List {
         var dataOffset = baseRva
         let rangeCount = Int(numberOfRanges)
 
-        // Validate descriptor area is within file bounds
-        let descriptorsEnd = offset + 16 + (rangeCount * 16)
-        guard descriptorsEnd <= data.count else { return nil }
+        // Validate descriptor area is within file bounds (with overflow protection)
+        let (bytesNeeded, mulOverflow) = rangeCount.multipliedReportingOverflow(by: 16)
+        guard !mulOverflow else { return nil }
+        let (offsetPlusHeader, addOverflow1) = offset.addingReportingOverflow(16)
+        guard !addOverflow1 else { return nil }
+        let (descriptorsEnd, addOverflow2) = offsetPlusHeader.addingReportingOverflow(bytesNeeded)
+        guard !addOverflow2, descriptorsEnd <= data.count else { return nil }
 
         // Each descriptor is 16 bytes: StartOfMemoryRange (8) + DataSize (8)
         for i in 0..<rangeCount {
@@ -172,9 +176,9 @@ public struct Memory64List {
             )
             regions.append(region)
 
-            // Safe overflow check for dataOffset
+            // Safe overflow check for dataOffset - fail on overflow instead of silent break
             let (newOffset, overflow) = dataOffset.addingReportingOverflow(dataSize)
-            if overflow { break }
+            guard !overflow else { return nil }
             dataOffset = newOffset
         }
 
@@ -224,13 +228,22 @@ public struct MemoryInfoList {
         // Validate entry count to prevent DoS
         guard numberOfEntries <= Self.maxEntries else { return nil }
 
+        // Validate entry size is reasonable (must be at least minimum struct size)
+        guard sizeOfEntry >= UInt32(Self.entrySize) else { return nil }
+        // Prevent infinite loop with zero entry size
+        guard sizeOfEntry > 0 else { return nil }
+
         var entries: [MemoryInfo] = []
         let entryCount = Int(numberOfEntries)
         let entrySizeInt = Int(sizeOfEntry)
 
-        // Validate entries fit within file bounds
-        let entriesEnd = offset + Int(sizeOfHeader) + (entryCount * entrySizeInt)
-        guard entriesEnd <= data.count else { return nil }
+        // Validate entries fit within file bounds (with overflow protection)
+        let (bytesNeeded, mulOverflow) = entryCount.multipliedReportingOverflow(by: entrySizeInt)
+        guard !mulOverflow else { return nil }
+        let (offsetPlusHeader, addOverflow1) = offset.addingReportingOverflow(Int(sizeOfHeader))
+        guard !addOverflow1 else { return nil }
+        let (entriesEnd, addOverflow2) = offsetPlusHeader.addingReportingOverflow(bytesNeeded)
+        guard !addOverflow2, entriesEnd <= data.count else { return nil }
 
         for i in 0..<entryCount {
             let entryOffset = offset + Int(sizeOfHeader) + (i * entrySizeInt)

@@ -64,9 +64,15 @@ public struct ExceptionInfo {
         self.numberOfParameters = min(numberOfParameters, 15)  // Max 15 params
 
         // Skip 4 bytes alignment after numberOfParameters
+        // Read parameters with overflow protection
         var params: [UInt64] = []
+        let paramsBase = recordOffset + 32
         for i in 0..<Int(self.numberOfParameters) {
-            if let param = data.readUInt64(at: recordOffset + 32 + (i * 8)) {
+            let (paramOffset, mulOverflow) = i.multipliedReportingOverflow(by: 8)
+            guard !mulOverflow else { break }
+            let (finalOffset, addOverflow) = paramsBase.addingReportingOverflow(paramOffset)
+            guard !addOverflow else { break }
+            if let param = data.readUInt64(at: finalOffset) {
                 params.append(param)
             }
         }

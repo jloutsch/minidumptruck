@@ -6,6 +6,8 @@ public struct CrashAnalyzer {
 
     /// Maximum stack bytes to scan
     private let maxStackScanBytes = 8192  // 8KB
+    /// Maximum total frames to return from analysis
+    private let maxTotalFrames = 100
 
     public init(dump: ParsedMinidump) {
         self.dump = dump
@@ -97,7 +99,8 @@ public struct CrashAnalyzer {
         )
         frames.append(contentsOf: scannedFrames)
 
-        return frames
+        // Apply consistent total frame limit
+        return Array(frames.prefix(maxTotalFrames))
     }
 
     /// Walk RBP chain (x64 standard calling convention)

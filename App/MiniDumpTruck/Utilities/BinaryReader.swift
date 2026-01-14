@@ -46,8 +46,10 @@ public extension Data {
         let stringOffset = offset + 4
         let stringLength = Int(length)
 
-        guard stringOffset + stringLength <= count else { return nil }
-        let stringData = self[stringOffset..<(stringOffset + stringLength)]
+        // Safe bounds check with overflow protection
+        let (end, overflow) = stringOffset.addingReportingOverflow(stringLength)
+        guard !overflow, end <= count else { return nil }
+        let stringData = self[stringOffset..<end]
 
         return String(data: stringData, encoding: .utf16LittleEndian)
     }
