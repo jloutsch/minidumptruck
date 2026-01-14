@@ -109,9 +109,13 @@ public struct ThreadList {
         var threads: [ThreadInfo] = []
         let threadCount = Int(count)
 
-        // Validate thread array is within file bounds
-        let threadsEnd = offset + 4 + (threadCount * ThreadInfo.size)
-        guard threadsEnd <= data.count else { return nil }
+        // Validate thread array is within file bounds (with overflow protection)
+        let (bytesNeeded, mulOverflow) = threadCount.multipliedReportingOverflow(by: ThreadInfo.size)
+        guard !mulOverflow else { return nil }
+        let (offsetPlusHeader, addOverflow1) = offset.addingReportingOverflow(4)
+        guard !addOverflow1 else { return nil }
+        let (threadsEnd, addOverflow2) = offsetPlusHeader.addingReportingOverflow(bytesNeeded)
+        guard !addOverflow2, threadsEnd <= data.count else { return nil }
 
         for i in 0..<threadCount {
             let threadOffset = offset + 4 + (i * ThreadInfo.size)

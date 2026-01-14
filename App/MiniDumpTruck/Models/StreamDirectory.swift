@@ -134,9 +134,11 @@ public struct StreamDirectory {
         guard header.numberOfStreams <= Self.maxStreams else { return nil }
         let count = Int(header.numberOfStreams)
 
-        // Validate directory offset is within file bounds
-        guard directoryOffset >= 0,
-              directoryOffset + (count * StreamDirectoryEntry.size) <= data.count else {
+        // Validate directory offset is within file bounds (with overflow protection)
+        let (bytesNeeded, mulOverflow) = count.multipliedReportingOverflow(by: StreamDirectoryEntry.size)
+        guard !mulOverflow else { return nil }
+        let (directoryEnd, addOverflow) = directoryOffset.addingReportingOverflow(bytesNeeded)
+        guard !addOverflow, directoryOffset >= 0, directoryEnd <= data.count else {
             return nil
         }
 

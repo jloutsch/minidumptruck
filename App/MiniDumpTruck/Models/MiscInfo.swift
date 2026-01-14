@@ -69,8 +69,10 @@ public struct MiscInfo {
         guard let sizeOfInfo = data.readUInt32(at: rva) else { return nil }
         self.sizeOfInfo = sizeOfInfo
 
-        guard sizeOfInfo >= UInt32(Self.minSize),
-              rva + Int(sizeOfInfo) <= data.count else { return nil }
+        // Validate size bounds with overflow protection
+        guard sizeOfInfo >= UInt32(Self.minSize) else { return nil }
+        let (end, overflow) = rva.addingReportingOverflow(Int(sizeOfInfo))
+        guard !overflow, end <= data.count else { return nil }
 
         guard let flagsRaw = data.readUInt32(at: rva + 4) else { return nil }
         self.flags = MiscInfoFlags(rawValue: flagsRaw)

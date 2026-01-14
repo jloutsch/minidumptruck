@@ -174,9 +174,13 @@ public struct ModuleList {
         var modules: [ModuleInfo] = []
         let moduleCount = Int(count)
 
-        // Validate module array is within file bounds
-        let modulesEnd = offset + 4 + (moduleCount * ModuleInfo.size)
-        guard modulesEnd <= data.count else { return nil }
+        // Validate module array is within file bounds (with overflow protection)
+        let (bytesNeeded, mulOverflow) = moduleCount.multipliedReportingOverflow(by: ModuleInfo.size)
+        guard !mulOverflow else { return nil }
+        let (offsetPlusHeader, addOverflow1) = offset.addingReportingOverflow(4)
+        guard !addOverflow1 else { return nil }
+        let (modulesEnd, addOverflow2) = offsetPlusHeader.addingReportingOverflow(bytesNeeded)
+        guard !addOverflow2, modulesEnd <= data.count else { return nil }
 
         for i in 0..<moduleCount {
             let moduleOffset = offset + 4 + (i * ModuleInfo.size)
