@@ -4,6 +4,10 @@ A native macOS application for analyzing Windows crash dump files (.dmp). Get Wi
 
 ![MiniDumpTruck Summary View](screenshots/crash-summary.png)
 
+## Why MiniDumpTruck?
+
+Analyzing Windows crash dumps on macOS has traditionally meant wrestling with Google Breakpad's command-line tools or spinning up a Windows VM. MiniDumpTruck was built to provide a simpler, more intuitive way to examine minidump files directly on your Mac with a native UI.
+
 ## Features
 
 - **Native macOS Experience** - Built with SwiftUI, feels right at home on your Mac
