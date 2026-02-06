@@ -127,8 +127,10 @@ public struct CrashAnalyzer {
             guard currentRBP % 8 == 0 else { break } // Must be aligned
 
             // Read saved RBP (at [RBP]) and return address (at [RBP+8])
-            guard let savedRBP = readUInt64(at: currentRBP),
-                  let returnAddress = readUInt64(at: currentRBP + 8) else {
+            let (rbpPlus8, rbpOverflow) = currentRBP.addingReportingOverflow(8)
+            guard !rbpOverflow,
+                  let savedRBP = readUInt64(at: currentRBP),
+                  let returnAddress = readUInt64(at: rbpPlus8) else {
                 break
             }
 
@@ -158,13 +160,10 @@ public struct CrashAnalyzer {
     ) -> [StackFrame] {
         var frames: [StackFrame] = []
 
-        // Read stack memory
-        let scanSize = min(maxStackScanBytes, Int(thread.stack.dataSize))
-        guard let stackData = dump.memory64List?.readMemory(
-            at: rsp,
-            size: scanSize,
-            from: dump.data
-        ) else {
+        // Read stack memory - scan from RSP to end of stack, not just dataSize from stack base
+        let availableFromRsp = thread.stack.endAddress > rsp ? Int(thread.stack.endAddress - rsp) : 0
+        let scanSize = min(maxStackScanBytes, availableFromRsp)
+        guard let stackData = readMemory(at: rsp, size: scanSize) else {
             return frames
         }
 
@@ -213,8 +212,8 @@ public struct CrashAnalyzer {
         exception: ExceptionInfo,
         frames: [StackFrame]
     ) -> BlameResult? {
-        // Priority 1: Graphics driver in crash path
-        for frame in frames {
+        // Priority 1: Graphics driver near top of crash path (top 5 frames only)
+        for frame in frames.prefix(5) {
             if let module = frame.module,
                SystemModules.isGraphicsDriver(module.name) {
                 return BlameResult(
@@ -382,8 +381,16 @@ public struct CrashAnalyzer {
         )
     }
 
+    /// Read memory from the dump, trying Memory64List then MemoryList
+    private func readMemory(at address: UInt64, size: Int) -> Data? {
+        if let result = dump.memory64List?.readMemory(at: address, size: size, from: dump.data) {
+            return result
+        }
+        return dump.memoryList?.readMemory(at: address, size: size, from: dump.data)
+    }
+
     private func readUInt64(at address: UInt64) -> UInt64? {
-        guard let data = dump.memory64List?.readMemory(at: address, size: 8, from: dump.data),
+        guard let data = readMemory(at: address, size: 8),
               data.count == 8 else {
             return nil
         }

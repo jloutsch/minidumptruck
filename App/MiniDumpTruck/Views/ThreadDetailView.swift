@@ -108,7 +108,7 @@ struct ThreadDetailView: View {
                                     GridItem(.flexible()),
                                     GridItem(.flexible())
                                 ], spacing: 4) {
-                                    ForEach(context.generalRegisters.dropLast(), id: \.name) { reg in
+                                    ForEach(context.generalRegisters.filter { $0.name != "RIP" }, id: \.name) { reg in
                                         HStack {
                                             Text("\(reg.name):")
                                                 .fontWeight(.medium)

@@ -23,7 +23,8 @@ public struct HandleEntry: Identifiable {
     public var objectName: String = ""
 
     public init?(from data: Data, at offset: Int, descriptorSize: Int) {
-        guard offset + descriptorSize <= data.count else { return nil }
+        let (end, endOverflow) = offset.addingReportingOverflow(descriptorSize)
+        guard !endOverflow, end <= data.count else { return nil }
 
         guard let handle = data.readUInt64(at: offset),
               let typeNameRva = data.readUInt32(at: offset + 8),
@@ -104,9 +105,17 @@ public struct HandleDataList {
 
         var entries: [HandleEntry] = []
         let entriesOffset = rva + Int(sizeOfHeader)
+        let entryCount = Int(numberOfDescriptors)
+        let entrySizeInt = Int(sizeOfDescriptor)
 
-        for i in 0..<Int(numberOfDescriptors) {
-            let entryOffset = entriesOffset + (i * Int(sizeOfDescriptor))
+        // Validate entries fit within file bounds (with overflow protection)
+        let (bytesNeeded, mulOverflow) = entryCount.multipliedReportingOverflow(by: entrySizeInt)
+        guard !mulOverflow else { return nil }
+        let (entriesEnd, addOverflow) = entriesOffset.addingReportingOverflow(bytesNeeded)
+        guard !addOverflow, entriesEnd <= data.count else { return nil }
+
+        for i in 0..<entryCount {
+            let entryOffset = entriesOffset + (i * entrySizeInt)
 
             guard var entry = HandleEntry(from: data, at: entryOffset, descriptorSize: Int(sizeOfDescriptor)) else {
                 continue

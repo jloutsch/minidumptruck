@@ -7,7 +7,8 @@ public struct MinidumpMemoryDescriptor {
     public let rva: UInt32  // File offset to memory contents
 
     public var endAddress: UInt64 {
-        startOfMemoryRange + UInt64(dataSize)
+        let (result, overflow) = startOfMemoryRange.addingReportingOverflow(UInt64(dataSize))
+        return overflow ? UInt64.max : result
     }
 
     public init?(from data: Data, at offset: Int) {

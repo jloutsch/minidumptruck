@@ -17,6 +17,9 @@ public struct ThreadContext {
     public let segGs: UInt16
     public let segSs: UInt16
 
+    // MxCsr (SSE control/status)
+    public let mxCsr: UInt32
+
     // Flags
     public let eflags: UInt32
 
@@ -49,6 +52,24 @@ public struct ThreadContext {
     // Instruction pointer
     public let rip: UInt64
 
+    // XMM registers (from FXSAVE area at offset 256)
+    public let xmm0: (UInt64, UInt64)?
+    public let xmm1: (UInt64, UInt64)?
+    public let xmm2: (UInt64, UInt64)?
+    public let xmm3: (UInt64, UInt64)?
+    public let xmm4: (UInt64, UInt64)?
+    public let xmm5: (UInt64, UInt64)?
+    public let xmm6: (UInt64, UInt64)?
+    public let xmm7: (UInt64, UInt64)?
+    public let xmm8: (UInt64, UInt64)?
+    public let xmm9: (UInt64, UInt64)?
+    public let xmm10: (UInt64, UInt64)?
+    public let xmm11: (UInt64, UInt64)?
+    public let xmm12: (UInt64, UInt64)?
+    public let xmm13: (UInt64, UInt64)?
+    public let xmm14: (UInt64, UInt64)?
+    public let xmm15: (UInt64, UInt64)?
+
     // Floating point state stored separately
     public let floatSaveValid: Bool
 
@@ -60,6 +81,9 @@ public struct ThreadContext {
         self.contextFlags = contextFlags
 
         // MxCsr at offset 52
+        guard let mxCsr = data.readUInt32(at: offset + 52) else { return nil }
+        self.mxCsr = mxCsr
+
         // Segment registers at offset 56
         guard let segCs = data.readUInt16(at: offset + 56),
               let segDs = data.readUInt16(at: offset + 58),
@@ -136,8 +160,34 @@ public struct ThreadContext {
         guard let rip = data.readUInt64(at: offset + 248) else { return nil }
         self.rip = rip
 
-        // Float save area starts at offset 256 (512 bytes for XSAVE)
-        self.floatSaveValid = (contextFlags & 0x8) != 0  // CONTEXT_FLOATING_POINT
+        // Float save area starts at offset 256 (512 bytes XMM_SAVE_AREA32 / FXSAVE)
+        // CONTEXT_FLOATING_POINT = CONTEXT_AMD64 | 0x8 = 0x00100008
+        self.floatSaveValid = (contextFlags & 0x8) != 0
+
+        // XMM registers within FXSAVE area: XMM0-XMM15 at offset 256+160 = 416
+        // FXSAVE layout: 160 bytes header, then 16 XMM regs at 16 bytes each
+        if floatSaveValid {
+            let xmmBase = offset + 256 + 160  // offset 416
+            func readXmm(_ idx: Int) -> (UInt64, UInt64)? {
+                let o = xmmBase + idx * 16
+                guard let lo = data.readUInt64(at: o),
+                      let hi = data.readUInt64(at: o + 8) else { return nil }
+                return (lo, hi)
+            }
+            self.xmm0 = readXmm(0);   self.xmm1 = readXmm(1)
+            self.xmm2 = readXmm(2);   self.xmm3 = readXmm(3)
+            self.xmm4 = readXmm(4);   self.xmm5 = readXmm(5)
+            self.xmm6 = readXmm(6);   self.xmm7 = readXmm(7)
+            self.xmm8 = readXmm(8);   self.xmm9 = readXmm(9)
+            self.xmm10 = readXmm(10); self.xmm11 = readXmm(11)
+            self.xmm12 = readXmm(12); self.xmm13 = readXmm(13)
+            self.xmm14 = readXmm(14); self.xmm15 = readXmm(15)
+        } else {
+            self.xmm0 = nil;  self.xmm1 = nil;  self.xmm2 = nil;  self.xmm3 = nil
+            self.xmm4 = nil;  self.xmm5 = nil;  self.xmm6 = nil;  self.xmm7 = nil
+            self.xmm8 = nil;  self.xmm9 = nil;  self.xmm10 = nil; self.xmm11 = nil
+            self.xmm12 = nil; self.xmm13 = nil; self.xmm14 = nil; self.xmm15 = nil
+        }
     }
 
     /// All general purpose registers as name-value pairs
@@ -165,6 +215,20 @@ public struct ThreadContext {
             ("CS", segCs), ("DS", segDs), ("ES", segEs),
             ("FS", segFs), ("GS", segGs), ("SS", segSs)
         ]
+    }
+
+    /// XMM registers as name-value pairs (formatted as hex string)
+    public var xmmRegisters: [(name: String, value: String)] {
+        let regs: [(String, (UInt64, UInt64)?)] = [
+            ("XMM0", xmm0), ("XMM1", xmm1), ("XMM2", xmm2), ("XMM3", xmm3),
+            ("XMM4", xmm4), ("XMM5", xmm5), ("XMM6", xmm6), ("XMM7", xmm7),
+            ("XMM8", xmm8), ("XMM9", xmm9), ("XMM10", xmm10), ("XMM11", xmm11),
+            ("XMM12", xmm12), ("XMM13", xmm13), ("XMM14", xmm14), ("XMM15", xmm15)
+        ]
+        return regs.compactMap { name, val in
+            guard let (lo, hi) = val else { return nil }
+            return (name, String(format: "%016llX%016llX", hi, lo))
+        }
     }
 
     /// Decode EFLAGS into individual flags

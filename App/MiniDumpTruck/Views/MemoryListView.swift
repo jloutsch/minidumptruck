@@ -5,6 +5,7 @@ struct MemoryListView: View {
     let document: MinidumpDocument
     @Bindable var viewModel: DumpViewModel
     @State private var sortOrder = [KeyPathComparator(\MemoryRegion.baseAddress)]
+    @State private var addressError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -15,20 +16,33 @@ struct MemoryListView: View {
                 TextField("Go to address (e.g., 0x7FF...)", text: $viewModel.memoryAddressText)
                     .textFieldStyle(.plain)
                     .onSubmit {
-                        if let address = viewModel.parseAddress(viewModel.memoryAddressText),
-                           let region = document.memoryRegions.first(where: { $0.contains(address: address) }) {
+                        addressError = nil
+                        guard let address = viewModel.parseAddress(viewModel.memoryAddressText) else {
+                            addressError = "Invalid hex address"
+                            return
+                        }
+                        if let region = document.memoryRegions.first(where: { $0.contains(address: address) }) {
                             viewModel.detailSelection = .memoryRegion(region.id)
+                        } else {
+                            addressError = "Address not in any memory region"
                         }
                     }
 
                 if !viewModel.memoryAddressText.isEmpty {
                     Button {
                         viewModel.memoryAddressText = ""
+                        addressError = nil
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                }
+
+                if let error = addressError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
             }
             .padding(8)
@@ -65,7 +79,7 @@ struct MemoryListView: View {
                 .width(min: 140, ideal: 160)
 
                 TableColumn("Size", value: \.regionSize) { region in
-                    Text(ByteCountFormatter.string(fromByteCount: Int64(region.regionSize), countStyle: .memory))
+                    Text(ByteCountFormatter.string(fromByteCount: Int64(clamping: region.regionSize), countStyle: .memory))
                         .font(.caption)
                 }
                 .width(min: 80, ideal: 100)

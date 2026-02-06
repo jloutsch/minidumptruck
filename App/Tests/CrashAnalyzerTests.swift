@@ -26,10 +26,7 @@ struct CrashAnalyzerTests {
 
     @Test func analyzeTestDump() throws {
         let url = Self.testFile("test.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -45,10 +42,7 @@ struct CrashAnalyzerTests {
 
     @Test func analyzeFullDump() throws {
         let url = Self.testFile("full-dump.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -70,10 +64,7 @@ struct CrashAnalyzerTests {
 
     @Test func analyzeMacosSegv() throws {
         let url = Self.testFile("pipeline-inlines-macos-segv.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -97,11 +88,8 @@ struct CrashAnalyzerTests {
 
     // MARK: - Stack Frame Tests
 
-    @Test func stackFrameDisplayAddressWithModule() {
-        guard let module = createMockModule(name: "test.dll", baseAddress: 0x10000000) else {
-            Issue.record("Failed to create mock module")
-            return
-        }
+    @Test func stackFrameDisplayAddressWithModule() throws {
+        let module = try #require(createMockModule(name: "test.dll", baseAddress: 0x10000000))
         let frame = StackFrame(
             address: 0x10001234,
             module: module,
@@ -159,11 +147,8 @@ struct CrashAnalyzerTests {
 
     // MARK: - Blame Result Tests
 
-    @Test func blameReasonDescriptions() {
-        guard let module = createMockModule(name: "test.dll", baseAddress: 0x10000000) else {
-            Issue.record("Failed to create mock module")
-            return
-        }
+    @Test func blameReasonDescriptions() throws {
+        let module = try #require(createMockModule(name: "test.dll", baseAddress: 0x10000000))
         let frame = StackFrame(
             address: 0x10001000,
             module: module,
@@ -187,11 +172,8 @@ struct CrashAnalyzerTests {
 
     // MARK: - Crash Summary Tests
 
-    @Test func crashSummaryFields() {
-        guard let module = createMockModule(name: "app.exe", baseAddress: 0x400000) else {
-            Issue.record("Failed to create mock module")
-            return
-        }
+    @Test func crashSummaryFields() throws {
+        let module = try #require(createMockModule(name: "app.exe", baseAddress: 0x400000))
         let summary = CrashSummary(
             exceptionType: "STATUS_ACCESS_VIOLATION",
             exceptionDescription: "Access violation reading",
@@ -217,10 +199,7 @@ struct CrashAnalyzerTests {
 
     @Test func analyzerReturnsNilWithoutException() throws {
         let url = Self.testFile("test.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -237,10 +216,7 @@ struct CrashAnalyzerTests {
 
     @Test func analysisHasReasonableFrameCount() throws {
         let url = Self.testFile("full-dump.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -257,10 +233,7 @@ struct CrashAnalyzerTests {
 
     @Test func analysisFramesAreUnique() throws {
         let url = Self.testFile("full-dump.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -276,10 +249,7 @@ struct CrashAnalyzerTests {
 
     @Test func firstFrameIsInstructionPointer() throws {
         let url = Self.testFile("pipeline-inlines-macos-segv.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -295,10 +265,7 @@ struct CrashAnalyzerTests {
     @Test func accessViolationProbableCause() throws {
         // Test that access violation (0xC0000005) produces appropriate message
         let url = Self.testFile("pipeline-inlines-macos-segv.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -317,10 +284,7 @@ struct CrashAnalyzerTests {
 
     @Test func blameModuleHasValidReason() throws {
         let url = Self.testFile("full-dump.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -348,10 +312,7 @@ struct CrashAnalyzerTests {
 
     @Test func recommendationIsNotEmpty() throws {
         let url = Self.testFile("full-dump.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -368,10 +329,7 @@ struct CrashAnalyzerTests {
         // Some dumps may have threads without context
         // Analyzer should handle this gracefully
         let url = Self.testFile("test.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -383,10 +341,7 @@ struct CrashAnalyzerTests {
 
     @Test func analyzerHandlesEmptyModuleList() throws {
         let url = Self.testFile("linux-mini.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)

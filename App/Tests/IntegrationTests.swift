@@ -28,10 +28,7 @@ struct IntegrationTests {
 
     @Test func parseTestDmp() throws {
         let url = Self.testFile("test.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -42,10 +39,7 @@ struct IntegrationTests {
 
     @Test func parseFullDump() throws {
         let url = Self.testFile("full-dump.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -56,10 +50,7 @@ struct IntegrationTests {
 
     @Test func parseLinuxMini() throws {
         let url = Self.testFile("linux-mini.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -70,10 +61,7 @@ struct IntegrationTests {
 
     @Test func parseSimpleCrashpad() throws {
         let url = Self.testFile("simple-crashpad.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -83,10 +71,7 @@ struct IntegrationTests {
 
     @Test func parseMacosSegv() throws {
         let url = Self.testFile("pipeline-inlines-macos-segv.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -99,10 +84,7 @@ struct IntegrationTests {
 
     @Test func parseInvalidParameter() throws {
         let url = Self.testFile("invalid-parameter.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         // This file has valid header but may have issues in streams
@@ -112,10 +94,7 @@ struct IntegrationTests {
 
     @Test func parseInvalidRange() throws {
         let url = Self.testFile("invalid-range.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         // This file has invalid range data - should handle gracefully
@@ -124,10 +103,7 @@ struct IntegrationTests {
 
     @Test func parseInvalidRecordCount() throws {
         let url = Self.testFile("invalid-record-count.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         // This file has invalid record count - should handle gracefully
@@ -138,42 +114,29 @@ struct IntegrationTests {
 
     @Test func testDumpHasThreads() throws {
         let url = Self.testFile("test.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
 
-        #expect(dump.threadList != nil)
-        if let threads = dump.threadList {
-            #expect(threads.threads.count > 0)
-        }
+        let threads = try #require(dump.threadList, "No thread list in dump")
+        #expect(threads.threads.count > 0)
     }
 
     @Test func testDumpHasModules() throws {
         let url = Self.testFile("test.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
 
-        #expect(dump.moduleList != nil)
-        if let modules = dump.moduleList {
-            #expect(modules.modules.count > 0)
-        }
+        let modules = try #require(dump.moduleList, "No module list in dump")
+        #expect(modules.modules.count > 0)
     }
 
     @Test func testDumpSystemInfo() throws {
         let url = Self.testFile("test.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -185,19 +148,13 @@ struct IntegrationTests {
 
     @Test func testMemoryReading() throws {
         let url = Self.testFile("full-dump.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
 
-        guard let memory64 = dump.memory64List,
-              let firstRegion = memory64.regions.first else {
-            Issue.record("No memory regions in dump")
-            return
-        }
+        let memory64 = try #require(dump.memory64List, "No memory64 list in dump")
+        let firstRegion = try #require(memory64.regions.first, "No memory regions in dump")
 
         // Try to read from the first memory region
         let readData = memory64.readMemory(
@@ -213,19 +170,13 @@ struct IntegrationTests {
 
     @Test func testAddressResolution() throws {
         let url = Self.testFile("test.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
 
-        guard let modules = dump.moduleList,
-              let firstModule = modules.modules.first else {
-            Issue.record("No modules in dump")
-            return
-        }
+        let modules = try #require(dump.moduleList, "No module list in dump")
+        let firstModule = try #require(modules.modules.first, "No modules in dump")
 
         // Address in the middle of first module should resolve
         let midAddress = firstModule.baseAddress + UInt64(firstModule.sizeOfImage / 2)
@@ -237,10 +188,7 @@ struct IntegrationTests {
 
     @Test func testFullDumpAnalysis() throws {
         let url = Self.testFile("full-dump.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
@@ -260,18 +208,12 @@ struct IntegrationTests {
 
     @Test func testExceptionParsing() throws {
         let url = Self.testFile("pipeline-inlines-macos-segv.dmp")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            Issue.record("Test file not found: \(url.path)")
-            return
-        }
+        try #require(FileManager.default.fileExists(atPath: url.path), "Test file not found: \(url.path)")
 
         let data = try Data(contentsOf: url)
         let dump = try MinidumpParser.parse(data: data)
 
-        guard let exception = dump.exception else {
-            Issue.record("No exception in dump")
-            return
-        }
+        let exception = try #require(dump.exception, "No exception in dump")
 
         // Exception should have valid thread ID
         #expect(exception.threadId != 0)

@@ -11,14 +11,15 @@ struct HexView: View {
     @State private var currentSearchIndex: Int = 0
     @State private var jumpAddress: String = ""
     @State private var scrollToOffset: Int?
+    @State private var scrollTrigger: Int = 0
+    @State private var jumpError: String?
+    @State private var cachedData: Data?
+    @State private var cachedRegionId: UUID?
 
     private let bytesPerRow = 16
     private let maxReadSize = 1024 * 1024  // 1MB max
 
-    var memoryData: Data? {
-        let size = Int(min(region.regionSize, UInt64(maxReadSize)))
-        return document.readMemory(at: region.baseAddress, size: size)
-    }
+    var memoryData: Data? { cachedData }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,6 +45,12 @@ struct HexView: View {
             }
         }
         .navigationTitle("Memory View")
+        .onAppear {
+            loadRegionDataIfNeeded()
+        }
+        .onChange(of: region.id) {
+            loadRegionDataIfNeeded()
+        }
     }
 
     private var headerView: some View {
@@ -54,7 +61,7 @@ struct HexView: View {
 
             Spacer()
 
-            Text("Size: \(ByteCountFormatter.string(fromByteCount: Int64(region.regionSize), countStyle: .memory))")
+            Text("Size: \(ByteCountFormatter.string(fromByteCount: Int64(clamping: region.regionSize), countStyle: .memory))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -93,6 +100,7 @@ struct HexView: View {
                             Image(systemName: "chevron.up")
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Previous match")
 
                         Button {
                             navigateSearch(forward: true)
@@ -100,6 +108,7 @@ struct HexView: View {
                             Image(systemName: "chevron.down")
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Next match")
                     }
 
                     Button {
@@ -110,6 +119,7 @@ struct HexView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
                 }
             }
             .frame(maxWidth: 300)
@@ -127,6 +137,12 @@ struct HexView: View {
                     .onSubmit {
                         jumpToAddress()
                     }
+
+                if let error = jumpError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
             }
         }
         .padding(8)
@@ -156,8 +172,8 @@ struct HexView: View {
             }
             .fontDesign(.monospaced)
             .font(.system(size: 12))
-            .onChange(of: scrollToOffset) { _, newValue in
-                if let offset = newValue {
+            .onChange(of: scrollTrigger) { _, _ in
+                if let offset = scrollToOffset {
                     let rowOffset = (offset / bytesPerRow) * bytesPerRow
                     withAnimation {
                         proxy.scrollTo(rowOffset, anchor: .center)
@@ -193,6 +209,10 @@ struct HexView: View {
         // Search for pattern
         var results: [Int] = []
         let dataBytes = Array(data)
+        guard dataBytes.count >= searchBytes.count else {
+            searchResults = []
+            return
+        }
         for i in 0...(dataBytes.count - searchBytes.count) {
             var match = true
             for j in 0..<searchBytes.count {
@@ -210,7 +230,7 @@ struct HexView: View {
         searchResults = results
         currentSearchIndex = 0
         if let first = results.first {
-            scrollToOffset = first
+            scrollTo(first)
         }
     }
 
@@ -223,21 +243,46 @@ struct HexView: View {
             currentSearchIndex = (currentSearchIndex - 1 + searchResults.count) % searchResults.count
         }
 
-        scrollToOffset = searchResults[currentSearchIndex]
+        scrollTo(searchResults[currentSearchIndex])
     }
 
     private func jumpToAddress() {
+        jumpError = nil
         let cleaned = jumpAddress.trimmingCharacters(in: .whitespaces)
             .lowercased()
             .replacingOccurrences(of: "0x", with: "")
 
-        guard let address = UInt64(cleaned, radix: 16) else { return }
+        guard !cleaned.isEmpty, let address = UInt64(cleaned, radix: 16) else {
+            jumpError = "Invalid hex address"
+            return
+        }
 
         // Check if address is in this region
         if address >= region.baseAddress && address < region.endAddress {
             let offset = Int(address - region.baseAddress)
-            scrollToOffset = offset
+            scrollTo(offset)
+        } else {
+            jumpError = "Address not in region"
         }
+    }
+
+    private func scrollTo(_ offset: Int) {
+        scrollToOffset = offset
+        scrollTrigger &+= 1
+    }
+
+    private func loadRegionDataIfNeeded() {
+        guard cachedRegionId != region.id else { return }
+        cachedRegionId = region.id
+        // Reset search state for the new region
+        searchText = ""
+        searchResults = []
+        currentSearchIndex = 0
+        scrollToOffset = nil
+        jumpAddress = ""
+        jumpError = nil
+        let size = Int(min(region.regionSize, UInt64(maxReadSize)))
+        cachedData = document.readMemory(at: region.baseAddress, size: size)
     }
 }
 

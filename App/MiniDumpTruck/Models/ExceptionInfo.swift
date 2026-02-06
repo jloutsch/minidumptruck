@@ -9,6 +9,9 @@ public struct ExceptionInfo {
     public let exceptionAddress: UInt64
     public let numberOfParameters: UInt32
     public let exceptionParameters: [UInt64]
+    /// Location of the thread context at the time of the exception
+    public let contextDataSize: UInt32?
+    public let contextRva: UInt32?
 
     public var exceptionName: String {
         NTStatusCodes.name(for: exceptionCode)
@@ -20,7 +23,7 @@ public struct ExceptionInfo {
 
     /// Decode ACCESS_VIOLATION parameters
     public var accessViolationDetails: String? {
-        guard exceptionCode == 0xC0000005, numberOfParameters >= 2 else { return nil }
+        guard exceptionCode == 0xC0000005, exceptionParameters.count >= 2 else { return nil }
 
         let operation = exceptionParameters[0]
         let address = exceptionParameters[1]
@@ -39,8 +42,8 @@ public struct ExceptionInfo {
     public init?(from data: Data, at rva: UInt32) {
         let offset = Int(rva)
 
-        // Validate RVA is within file bounds (minimum size: header + basic exception record)
-        guard offset >= 0, offset + 152 <= data.count else { return nil }
+        // MINIDUMP_EXCEPTION_STREAM: ThreadId(4) + alignment(4) + MINIDUMP_EXCEPTION(152) + MINIDUMP_LOCATION_DESCRIPTOR(8) = 168
+        guard offset >= 0, offset + 168 <= data.count else { return nil }
 
         // ExceptionStream: ThreadId (4) + alignment (4) + ExceptionRecord
         guard let threadId = data.readUInt32(at: offset) else { return nil }
@@ -77,5 +80,10 @@ public struct ExceptionInfo {
             }
         }
         self.exceptionParameters = params
+
+        // ThreadContext location descriptor at offset 160 (after ThreadId(4) + alignment(4) + MINIDUMP_EXCEPTION(152))
+        let contextLocOffset = offset + 160
+        self.contextDataSize = data.readUInt32(at: contextLocOffset)
+        self.contextRva = data.readUInt32(at: contextLocOffset + 4)
     }
 }

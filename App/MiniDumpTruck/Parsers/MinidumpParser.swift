@@ -32,6 +32,7 @@ public struct ParsedMinidump {
     public var exception: ExceptionInfo?
     public var threadList: ThreadList?
     public var moduleList: ModuleList?
+    public var memoryList: MemoryList?
     public var memory64List: Memory64List?
     public var memoryInfoList: MemoryInfoList?
     public var miscInfo: MiscInfo?
@@ -96,6 +97,9 @@ public struct MinidumpParser {
             case .moduleList:
                 result.moduleList = ModuleList(from: data, at: entry.rva)
 
+            case .memoryList:
+                result.memoryList = MemoryList(from: data, at: entry.rva)
+
             case .memory64List:
                 result.memory64List = Memory64List(from: data, at: entry.rva)
 
@@ -123,8 +127,12 @@ public struct MinidumpParser {
     }
 
     /// Read memory at a specific address from the parsed dump
+    /// Tries Memory64List first (full-memory dumps), then falls back to MemoryList (standard dumps)
     public static func readMemory(from dump: ParsedMinidump, at address: UInt64, size: Int) -> Data? {
-        dump.memory64List?.readMemory(at: address, size: size, from: dump.data)
+        if let result = dump.memory64List?.readMemory(at: address, size: size, from: dump.data) {
+            return result
+        }
+        return dump.memoryList?.readMemory(at: address, size: size, from: dump.data)
     }
 
     /// Find which module contains a given address
