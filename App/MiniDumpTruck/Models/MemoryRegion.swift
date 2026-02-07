@@ -77,7 +77,10 @@ public struct MemoryRegion: Identifiable {
     public let regionSize: UInt64
     public let dataRva: UInt64?  // File offset to memory contents
 
-    public var endAddress: UInt64 { baseAddress + regionSize }
+    public var endAddress: UInt64 {
+        let (result, overflow) = baseAddress.addingReportingOverflow(regionSize)
+        return overflow ? UInt64.max : result
+    }
 
     public init(baseAddress: UInt64, regionSize: UInt64, dataRva: UInt64?) {
         self.baseAddress = baseAddress
@@ -102,7 +105,10 @@ public struct MemoryInfo: Identifiable {
     public let protect: MemoryProtection
     public let type: MemoryType
 
-    public var endAddress: UInt64 { baseAddress + regionSize }
+    public var endAddress: UInt64 {
+        let (result, overflow) = baseAddress.addingReportingOverflow(regionSize)
+        return overflow ? UInt64.max : result
+    }
 
     public init?(from data: Data, at offset: Int) {
         guard let baseAddress = data.readUInt64(at: offset),
@@ -196,8 +202,92 @@ public struct Memory64List {
               let dataRva = region.dataRva else { return nil }
 
         let offsetInRegion = address - region.baseAddress
-        let fileOffset = Int(dataRva + offsetInRegion)
-        let availableSize = Int(region.regionSize - offsetInRegion)
+
+        // Safe UInt64 addition with overflow check
+        let (rawFileOffset, addOverflow) = dataRva.addingReportingOverflow(offsetInRegion)
+        guard !addOverflow else { return nil }
+
+        // Safe UInt64→Int conversion
+        guard rawFileOffset <= UInt64(Int.max) else { return nil }
+        let fileOffset = Int(rawFileOffset)
+
+        // Safe available size calculation
+        guard region.regionSize >= offsetInRegion else { return nil }
+        let availableSize64 = region.regionSize - offsetInRegion
+        let availableSize = Int(min(availableSize64, UInt64(Int.max)))
+        let readSize = min(size, availableSize)
+
+        return data.subdata(at: fileOffset, count: readSize)
+    }
+}
+
+/// Collection of memory regions from MemoryListStream (32-bit RVAs)
+/// Used in standard/normal minidumps (as opposed to Memory64List for full-memory dumps)
+public struct MemoryList {
+    public static let maxRegions: UInt32 = 10_000
+    /// Descriptor size: StartOfMemoryRange(8) + DataSize(4) + Rva(4) = 16
+    public static let descriptorSize = 16
+
+    public let regions: [MemoryRegion]
+
+    public init?(from data: Data, at rva: UInt32) {
+        let offset = Int(rva)
+
+        // Header: NumberOfMemoryRanges (4 bytes)
+        guard offset >= 0, offset + 4 <= data.count else { return nil }
+        guard let numberOfRanges = data.readUInt32(at: offset) else { return nil }
+        guard numberOfRanges <= Self.maxRegions else { return nil }
+
+        let rangeCount = Int(numberOfRanges)
+
+        // Validate descriptor area fits within file bounds
+        let (bytesNeeded, mulOverflow) = rangeCount.multipliedReportingOverflow(by: Self.descriptorSize)
+        guard !mulOverflow else { return nil }
+        let (offsetPlusHeader, addOverflow1) = offset.addingReportingOverflow(4)
+        guard !addOverflow1 else { return nil }
+        let (descriptorsEnd, addOverflow2) = offsetPlusHeader.addingReportingOverflow(bytesNeeded)
+        guard !addOverflow2, descriptorsEnd <= data.count else { return nil }
+
+        var regions: [MemoryRegion] = []
+        for i in 0..<rangeCount {
+            let descOffset = offset + 4 + (i * Self.descriptorSize)
+            // MINIDUMP_MEMORY_DESCRIPTOR: StartOfMemoryRange(8) + DataSize(4) + Rva(4)
+            guard let startAddress = data.readUInt64(at: descOffset),
+                  let dataSize = data.readUInt32(at: descOffset + 8),
+                  let memRva = data.readUInt32(at: descOffset + 12)
+            else { continue }
+
+            let region = MemoryRegion(
+                baseAddress: startAddress,
+                regionSize: UInt64(dataSize),
+                dataRva: UInt64(memRva)
+            )
+            regions.append(region)
+        }
+
+        self.regions = regions
+    }
+
+    /// Find region containing the given address
+    public func region(containing address: UInt64) -> MemoryRegion? {
+        regions.first { $0.contains(address: address) }
+    }
+
+    /// Read memory at an address from the dump file data
+    public func readMemory(at address: UInt64, size: Int, from data: Data) -> Data? {
+        guard let region = region(containing: address),
+              let dataRva = region.dataRva else { return nil }
+
+        let offsetInRegion = address - region.baseAddress
+
+        let (rawFileOffset, addOverflow) = dataRva.addingReportingOverflow(offsetInRegion)
+        guard !addOverflow else { return nil }
+        guard rawFileOffset <= UInt64(Int.max) else { return nil }
+        let fileOffset = Int(rawFileOffset)
+
+        guard region.regionSize >= offsetInRegion else { return nil }
+        let availableSize64 = region.regionSize - offsetInRegion
+        let availableSize = Int(min(availableSize64, UInt64(Int.max)))
         let readSize = min(size, availableSize)
 
         return data.subdata(at: fileOffset, count: readSize)

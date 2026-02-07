@@ -60,7 +60,11 @@ struct MinidumpDocument: FileDocument {
     var exception: ExceptionInfo? { parsedDump?.exception }
     var threads: [ThreadInfo] { parsedDump?.threadList?.threads ?? [] }
     var modules: [ModuleInfo] { parsedDump?.moduleList?.modules ?? [] }
-    var memoryRegions: [MemoryRegion] { parsedDump?.memory64List?.regions ?? [] }
+    var memoryRegions: [MemoryRegion] {
+        let regions64 = parsedDump?.memory64List?.regions ?? []
+        if !regions64.isEmpty { return regions64 }
+        return parsedDump?.memoryList?.regions ?? []
+    }
     var memoryInfoEntries: [MemoryInfo] { parsedDump?.memoryInfoList?.entries ?? [] }
     var unloadedModules: [UnloadedModule] { parsedDump?.unloadedModuleList?.modules ?? [] }
     var threadNames: ThreadNameList? { parsedDump?.threadNames }

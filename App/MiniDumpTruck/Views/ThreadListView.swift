@@ -49,30 +49,33 @@ struct ThreadListView: View {
 
             Divider()
 
-            // Thread list
-            List(selection: Binding(
-                get: {
-                    if case .thread(let id) = viewModel.detailSelection {
-                        return id
+            if filteredThreads.isEmpty && !viewModel.threadSearchText.isEmpty {
+                ContentUnavailableView.search(text: viewModel.threadSearchText)
+            } else {
+                List(selection: Binding(
+                    get: {
+                        if case .thread(let id) = viewModel.detailSelection {
+                            return id
+                        }
+                        return nil
+                    },
+                    set: { newValue in
+                        if let id = newValue {
+                            viewModel.detailSelection = .thread(id)
+                        }
                     }
-                    return nil
-                },
-                set: { newValue in
-                    if let id = newValue {
-                        viewModel.detailSelection = .thread(id)
+                )) {
+                    ForEach(filteredThreads) { thread in
+                        ThreadRowView(
+                            thread: thread,
+                            isFaulting: document.exception?.threadId == thread.id,
+                            threadName: document.threadName(for: thread.id)
+                        )
+                        .tag(thread.id)
                     }
                 }
-            )) {
-                ForEach(filteredThreads) { thread in
-                    ThreadRowView(
-                        thread: thread,
-                        isFaulting: document.exception?.threadId == thread.id,
-                        threadName: document.threadName(for: thread.id)
-                    )
-                    .tag(thread.id)
-                }
+                .listStyle(.inset)
             }
-            .listStyle(.inset)
         }
         .navigationTitle("Threads (\(document.threads.count))")
     }
@@ -128,7 +131,7 @@ struct ThreadRowView: View {
             Spacer()
 
             if let context = thread.context {
-                Text(String(format: "RIP: 0x%llX", context.rip))
+                Text(String(format: "RIP: 0x%016llX", context.rip))
                     .font(.caption)
                     .fontDesign(.monospaced)
                     .foregroundStyle(.secondary)

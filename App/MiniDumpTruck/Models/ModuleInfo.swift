@@ -77,6 +77,101 @@ public struct ModuleVersion {
     }
 }
 
+/// CodeView debug info record (CV_INFO_PDB70)
+public struct CodeViewRecord {
+    public static let signaturePDB70: UInt32 = 0x53445352  // "RSDS"
+    public static let signaturePDB20: UInt32 = 0x3031424E  // "NB10"
+
+    public let signature: UInt32
+    /// PDB70: 16-byte GUID
+    public let pdbGuid: UUID?
+    /// PDB age (incremented each time the PDB is regenerated)
+    public let age: UInt32
+    /// Path to the PDB file
+    public let pdbName: String
+
+    public init?(from data: Data, at offset: Int, size: Int) {
+        guard size >= 24, offset >= 0 else { return nil }
+        let (end, overflow) = offset.addingReportingOverflow(size)
+        guard !overflow, end <= data.count else { return nil }
+
+        guard let sig = data.readUInt32(at: offset) else { return nil }
+        self.signature = sig
+
+        if sig == Self.signaturePDB70 {
+            // RSDS format: Signature(4) + GUID(16) + Age(4) + PdbFileName(variable)
+            guard size >= 25 else { return nil }  // At least 1 byte for filename
+            guard let d1 = data.readUInt32(at: offset + 4),
+                  let d2 = data.readUInt16(at: offset + 8),
+                  let d3 = data.readUInt16(at: offset + 10) else { return nil }
+            // Bytes 12-19 are the last 8 bytes of the GUID (big-endian)
+            guard let guidBytes = data.readBytes(at: offset + 12, count: 8) else { return nil }
+            self.pdbGuid = UUID(uuid: (
+                UInt8((d1 >> 24) & 0xFF), UInt8((d1 >> 16) & 0xFF),
+                UInt8((d1 >> 8) & 0xFF), UInt8(d1 & 0xFF),
+                UInt8((d2 >> 8) & 0xFF), UInt8(d2 & 0xFF),
+                UInt8((d3 >> 8) & 0xFF), UInt8(d3 & 0xFF),
+                guidBytes[0], guidBytes[1], guidBytes[2], guidBytes[3],
+                guidBytes[4], guidBytes[5], guidBytes[6], guidBytes[7]
+            ))
+
+            guard let age = data.readUInt32(at: offset + 20) else { return nil }
+            self.age = age
+
+            // PDB filename is null-terminated UTF-8 starting at offset 24
+            let nameStart = offset + 24
+            let nameEnd = min(offset + size, data.count)
+            if let nameData = data.subdata(at: nameStart, count: nameEnd - nameStart) {
+                // Find null terminator
+                if let nullIndex = nameData.firstIndex(of: 0) {
+                    self.pdbName = String(data: nameData[nameData.startIndex..<nullIndex], encoding: .utf8) ?? ""
+                } else {
+                    self.pdbName = String(data: nameData, encoding: .utf8) ?? ""
+                }
+            } else {
+                self.pdbName = ""
+            }
+        } else if sig == Self.signaturePDB20 {
+            // NB10 format: Signature(4) + Offset(4) + TimeDateStamp(4) + Age(4) + PdbFileName(variable)
+            guard size >= 17 else { return nil }
+            self.pdbGuid = nil
+            guard let age = data.readUInt32(at: offset + 12) else { return nil }
+            self.age = age
+
+            let nameStart = offset + 16
+            let nameEnd = min(offset + size, data.count)
+            if let nameData = data.subdata(at: nameStart, count: nameEnd - nameStart) {
+                if let nullIndex = nameData.firstIndex(of: 0) {
+                    self.pdbName = String(data: nameData[nameData.startIndex..<nullIndex], encoding: .utf8) ?? ""
+                } else {
+                    self.pdbName = String(data: nameData, encoding: .utf8) ?? ""
+                }
+            } else {
+                self.pdbName = ""
+            }
+        } else {
+            return nil
+        }
+    }
+
+    /// Short PDB filename (without path)
+    public var pdbShortName: String {
+        let name = pdbName
+        if let lastBackslash = name.lastIndex(of: "\\") {
+            return String(name[name.index(after: lastBackslash)...])
+        }
+        if let lastSlash = name.lastIndex(of: "/") {
+            return String(name[name.index(after: lastSlash)...])
+        }
+        return name
+    }
+
+    /// Formatted GUID string for symbol server lookup
+    public var guidString: String? {
+        pdbGuid?.uuidString.replacingOccurrences(of: "-", with: "")
+    }
+}
+
 /// Module information from ModuleListStream (108 bytes per module)
 public struct ModuleInfo: Identifiable {
     public static let size = 108
@@ -90,12 +185,14 @@ public struct ModuleInfo: Identifiable {
     public let version: ModuleVersion?
     public let cvRecordLocation: MinidumpLocationDescriptor?
     public let miscRecordLocation: MinidumpLocationDescriptor?
+    public var codeViewRecord: CodeViewRecord?
 
     public var name: String = ""  // Populated after parsing
     public var timestamp: Date { Date(timeIntervalSince1970: TimeInterval(timeDateStamp)) }
 
     public var endAddress: UInt64 {
-        baseAddress + UInt64(sizeOfImage)
+        let (result, overflow) = baseAddress.addingReportingOverflow(UInt64(sizeOfImage))
+        return overflow ? UInt64.max : result
     }
 
     public var shortName: String {
@@ -189,6 +286,11 @@ public struct ModuleList {
             // Read module name from RVA
             if let name = data.readUTF16String(at: module.moduleNameRva) {
                 module.setName(name)
+            }
+
+            // Parse CodeView record if present
+            if let cvLoc = module.cvRecordLocation, cvLoc.dataSize > 0, cvLoc.rva > 0 {
+                module.codeViewRecord = CodeViewRecord(from: data, at: Int(cvLoc.rva), size: Int(cvLoc.dataSize))
             }
 
             modules.append(module)

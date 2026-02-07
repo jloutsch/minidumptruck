@@ -36,6 +36,9 @@ public extension Data {
         read(UInt64.self, at: offset)
     }
 
+    /// Maximum string length to prevent DoS via attacker-controlled allocation
+    static let maxStringLength = 1_048_576  // 1 MB
+
     /// Read a null-terminated UTF-16LE string at the RVA offset
     func readUTF16String(at rva: UInt32) -> String? {
         let offset = Int(rva)
@@ -45,6 +48,9 @@ public extension Data {
         guard let length = readUInt32(at: offset) else { return nil }
         let stringOffset = offset + 4
         let stringLength = Int(length)
+
+        // Cap string length to prevent excessive memory allocation from crafted dumps
+        guard stringLength <= Self.maxStringLength else { return nil }
 
         // Safe bounds check with overflow protection
         let (end, overflow) = stringOffset.addingReportingOverflow(stringLength)
@@ -56,7 +62,8 @@ public extension Data {
 
     /// Read a fixed-length UTF-16LE string (null-terminated within buffer)
     func readFixedUTF16String(at offset: Int, maxBytes: Int) -> String? {
-        guard offset >= 0, offset + maxBytes <= count else { return nil }
+        let (end, overflow) = offset.addingReportingOverflow(maxBytes)
+        guard !overflow, offset >= 0, end <= count else { return nil }
         let stringData = self[offset..<(offset + maxBytes)]
 
         // Find null terminator
@@ -76,14 +83,16 @@ public extension Data {
 
     /// Extract a subrange of data
     func subdata(at offset: Int, count: Int) -> Data? {
-        guard offset >= 0, offset + count <= self.count else { return nil }
-        return self[offset..<(offset + count)]
+        let (end, overflow) = offset.addingReportingOverflow(count)
+        guard !overflow, offset >= 0, end <= self.count else { return nil }
+        return self[offset..<end]
     }
 
     /// Read raw bytes at offset
     func readBytes(at offset: Int, count: Int) -> [UInt8]? {
-        guard offset >= 0, offset + count <= self.count else { return nil }
-        return Array(self[offset..<(offset + count)])
+        let (end, overflow) = offset.addingReportingOverflow(count)
+        guard !overflow, offset >= 0, end <= self.count else { return nil }
+        return Array(self[offset..<end])
     }
 }
 
@@ -104,7 +113,8 @@ public struct BinaryDataReader {
     }
 
     public mutating func skip(_ count: Int) {
-        position += count
+        let newPosition = max(0, position + count)
+        position = min(newPosition, data.count)
     }
 
     public mutating func read<T: FixedWidthInteger>(_ type: T.Type) -> T? {

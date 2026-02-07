@@ -41,6 +41,7 @@ enum DetailSelection: Hashable {
 }
 
 /// Main view model for the dump viewer
+@MainActor
 @Observable
 class DumpViewModel {
     var selectedSection: NavigationSection = .summary
@@ -75,7 +76,7 @@ class DumpViewModel {
 
     func goToAddress(_ address: UInt64) {
         selectedSection = .memory
-        memoryAddressText = String(format: "0x%llX", address)
+        memoryAddressText = String(format: "0x%016llX", address)
 
         // Try to find and select the memory region containing this address
         if let wrapper = documentReference,
@@ -86,7 +87,7 @@ class DumpViewModel {
 
     func goToAddressInDocument(_ address: UInt64, document: MinidumpDocument) {
         selectedSection = .memory
-        memoryAddressText = String(format: "0x%llX", address)
+        memoryAddressText = String(format: "0x%016llX", address)
 
         // Find and select the memory region containing this address
         if let region = document.memoryRegions.first(where: { $0.contains(address: address) }) {
@@ -95,10 +96,11 @@ class DumpViewModel {
     }
 
     func parseAddress(_ text: String) -> UInt64? {
-        let cleaned = text.trimmingCharacters(in: .whitespaces)
-            .lowercased()
-            .replacingOccurrences(of: "0x", with: "")
-
+        var cleaned = text.trimmingCharacters(in: .whitespaces).lowercased()
+        // Strip leading 0x prefix only once
+        if cleaned.hasPrefix("0x") {
+            cleaned = String(cleaned.dropFirst(2))
+        }
         return UInt64(cleaned, radix: 16)
     }
 }

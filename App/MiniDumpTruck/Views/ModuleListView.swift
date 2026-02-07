@@ -42,52 +42,55 @@ struct ModuleListView: View {
 
             Divider()
 
-            // Module table
-            Table(of: ModuleInfo.self, selection: Binding(
-                get: {
-                    if case .module(let id) = viewModel.detailSelection {
-                        return id
+            if filteredModules.isEmpty && !viewModel.moduleSearchText.isEmpty {
+                ContentUnavailableView.search(text: viewModel.moduleSearchText)
+            } else {
+                Table(of: ModuleInfo.self, selection: Binding(
+                    get: {
+                        if case .module(let id) = viewModel.detailSelection {
+                            return id
+                        }
+                        return nil
+                    },
+                    set: { newValue in
+                        if let id = newValue {
+                            viewModel.detailSelection = .module(id)
+                        }
                     }
-                    return nil
-                },
-                set: { newValue in
-                    if let id = newValue {
-                        viewModel.detailSelection = .module(id)
+                ), sortOrder: $sortOrder) {
+                    TableColumn("Name", value: \.shortName) { module in
+                        Text(module.shortName)
+                            .fontWeight(.medium)
                     }
-                }
-            ), sortOrder: $sortOrder) {
-                TableColumn("Name", value: \.shortName) { module in
-                    Text(module.shortName)
-                        .fontWeight(.medium)
-                }
-                .width(min: 100, ideal: 200)
+                    .width(min: 100, ideal: 200)
 
-                TableColumn("Base Address", value: \.baseAddress) { module in
-                    Text(String(format: "0x%016llX", module.baseAddress))
-                        .fontDesign(.monospaced)
-                        .font(.caption)
-                }
-                .width(min: 140, ideal: 160)
-
-                TableColumn("Size", value: \.sizeOfImage) { module in
-                    Text(ByteCountFormatter.string(fromByteCount: Int64(module.sizeOfImage), countStyle: .memory))
-                        .font(.caption)
-                }
-                .width(min: 60, ideal: 80)
-
-                TableColumn("Version") { module in
-                    if let version = module.version {
-                        Text(version.fileVersion)
+                    TableColumn("Base Address", value: \.baseAddress) { module in
+                        Text(String(format: "0x%016llX", module.baseAddress))
+                            .fontDesign(.monospaced)
                             .font(.caption)
-                    } else {
-                        Text("-")
-                            .foregroundStyle(.secondary)
                     }
-                }
-                .width(min: 80, ideal: 120)
-            } rows: {
-                ForEach(filteredModules) { module in
-                    TableRow(module)
+                    .width(min: 140, ideal: 160)
+
+                    TableColumn("Size", value: \.sizeOfImage) { module in
+                        Text(ByteCountFormatter.string(fromByteCount: Int64(module.sizeOfImage), countStyle: .memory))
+                            .font(.caption)
+                    }
+                    .width(min: 60, ideal: 80)
+
+                    TableColumn("Version") { module in
+                        if let version = module.version {
+                            Text(version.fileVersion)
+                                .font(.caption)
+                        } else {
+                            Text("-")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .width(min: 80, ideal: 120)
+                } rows: {
+                    ForEach(filteredModules) { module in
+                        TableRow(module)
+                    }
                 }
             }
         }
@@ -166,6 +169,38 @@ struct ModuleDetailView: View {
                                 Text("File Type:")
                                     .fontWeight(.medium)
                                 Text(version.fileTypeDescription)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                // Debug Information (CodeView)
+                if let cv = module.codeViewRecord {
+                    GroupBox("Debug Information") {
+                        Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
+                            GridRow {
+                                Text("PDB File:")
+                                    .fontWeight(.medium)
+                                Text(cv.pdbName)
+                                    .fontDesign(.monospaced)
+                                    .font(.caption)
+                            }
+
+                            if let guid = cv.pdbGuid {
+                                GridRow {
+                                    Text("PDB GUID:")
+                                        .fontWeight(.medium)
+                                    Text(guid.uuidString)
+                                        .fontDesign(.monospaced)
+                                        .font(.caption)
+                                }
+                            }
+
+                            GridRow {
+                                Text("PDB Age:")
+                                    .fontWeight(.medium)
+                                Text("\(cv.age)")
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)

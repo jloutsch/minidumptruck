@@ -156,11 +156,13 @@ public struct MiscInfo {
                     self.timeZoneBias = nil
                 }
 
+                // TIME_ZONE_INFORMATION layout (starting at rva+60):
+                //   Bias(4) + StandardName(64) + StandardDate(16) + StandardBias(4) + DaylightName(64) + DaylightDate(16) + DaylightBias(4)
                 // Standard name at offset 64 (64 bytes, 32 WCHARs)
                 self.timeZoneName = data.readFixedUTF16String(at: rva + 64, maxBytes: 64)
 
-                // Daylight name at offset 196 (after SYSTEMTIME structures)
-                self.daylightName = data.readFixedUTF16String(at: rva + 196, maxBytes: 64)
+                // Daylight name at offset 148 (60+4+64+16+4 = 148)
+                self.daylightName = data.readFixedUTF16String(at: rva + 148, maxBytes: 64)
             } else {
                 self.timeZoneId = nil
                 self.timeZoneBias = nil
@@ -178,7 +180,8 @@ public struct MiscInfo {
         }
 
         // MISC_INFO_4 fields (build strings) - starts at offset 232
-        if sizeOfInfo >= 1128 && flags.contains(.buildString) {
+        // MISC_INFO_4 = 232 + BuildString(520) + DbgBldStr(80) = 832 bytes
+        if sizeOfInfo >= 832 && flags.contains(.buildString) {
             // BuildString at offset 232 (520 bytes, 260 WCHARs)
             self.buildString = data.readFixedUTF16String(at: rva + 232, maxBytes: 520)
             // DbgBldStr at offset 752 (80 bytes, 40 WCHARs)

@@ -56,35 +56,38 @@ public enum ProductType: UInt8 {
     }
 }
 
-/// Windows platform IDs
+/// Windows platform IDs (VER_PLATFORM_* constants)
 public enum PlatformId: UInt32 {
-    case dos = 300
-    case os2 = 400
-    case win32s = 0
-    case win32Windows = 1
-    case win32NT = 2
-    case unix = 0x8000
+    case win32s = 0          // VER_PLATFORM_WIN32s
+    case win32Windows = 1    // VER_PLATFORM_WIN32_WINDOWS
+    case win32NT = 2         // VER_PLATFORM_WIN32_NT
 
     public var displayName: String {
         switch self {
-        case .dos: return "DOS"
-        case .os2: return "OS/2"
         case .win32s: return "Win32s"
         case .win32Windows: return "Windows 9x"
         case .win32NT: return "Windows NT"
-        case .unix: return "Unix"
         }
     }
 }
 
-/// CPU information from vendor ID and features
+/// CPU information from CPU_INFORMATION union
+/// For x86/x64: VendorId + VersionInfo + FeatureInfo + ExtendedFeatures
+/// For other architectures: ProcessorFeatures[2]
 public struct CpuInfo {
-    public let vendorId: [UInt32]  // 3 x UInt32 for vendor string
-    public let versionInfo: UInt32
-    public let featureInfo: UInt32
-    public let extendedFeatures: UInt32
+    // x86/x64 fields
+    public let vendorId: [UInt32]?  // 3 x UInt32 for CPUID vendor string
+    public let versionInfo: UInt32?
+    public let featureInfo: UInt32?
+    public let extendedFeatures: UInt32?
+
+    // Non-x86 fields
+    public let processorFeatures: [UInt64]?  // 2 x UInt64
+
+    public let isX86: Bool
 
     public var vendorString: String {
+        guard let vendorId = vendorId else { return "N/A" }
         var bytes: [UInt8] = []
         for val in vendorId {
             bytes.append(UInt8(val & 0xFF))
@@ -95,11 +98,11 @@ public struct CpuInfo {
         return String(bytes: bytes, encoding: .ascii)?.trimmingCharacters(in: .whitespaces) ?? "Unknown"
     }
 
-    public var stepping: UInt32 { versionInfo & 0xF }
-    public var model: UInt32 { (versionInfo >> 4) & 0xF }
-    public var family: UInt32 { (versionInfo >> 8) & 0xF }
-    public var extendedModel: UInt32 { (versionInfo >> 16) & 0xF }
-    public var extendedFamily: UInt32 { (versionInfo >> 20) & 0xFF }
+    public var stepping: UInt32 { (versionInfo ?? 0) & 0xF }
+    public var model: UInt32 { ((versionInfo ?? 0) >> 4) & 0xF }
+    public var family: UInt32 { ((versionInfo ?? 0) >> 8) & 0xF }
+    public var extendedModel: UInt32 { ((versionInfo ?? 0) >> 16) & 0xF }
+    public var extendedFamily: UInt32 { ((versionInfo ?? 0) >> 20) & 0xFF }
 
     public var displayModel: UInt32 {
         if family == 6 || family == 15 {
@@ -115,11 +118,24 @@ public struct CpuInfo {
         return family
     }
 
+    /// Initialize as x86/x64 CPU info
     public init(vendorId: [UInt32], versionInfo: UInt32, featureInfo: UInt32, extendedFeatures: UInt32) {
         self.vendorId = vendorId
         self.versionInfo = versionInfo
         self.featureInfo = featureInfo
         self.extendedFeatures = extendedFeatures
+        self.processorFeatures = nil
+        self.isX86 = true
+    }
+
+    /// Initialize as non-x86 CPU info (ARM, ARM64, etc.)
+    public init(processorFeatures: [UInt64]) {
+        self.vendorId = nil
+        self.versionInfo = nil
+        self.featureInfo = nil
+        self.extendedFeatures = nil
+        self.processorFeatures = processorFeatures
+        self.isX86 = false
     }
 }
 
@@ -199,21 +215,36 @@ public struct SystemInfo {
         self.csdVersionRva = csdVersionRva
         self.suiteFlags = suiteFlags
 
-        // Parse CPU info (offset 32)
-        guard let v0 = data.readUInt32(at: offset + 32),
-              let v1 = data.readUInt32(at: offset + 36),
-              let v2 = data.readUInt32(at: offset + 40),
-              let versionInfo = data.readUInt32(at: offset + 44),
-              let featureInfo = data.readUInt32(at: offset + 48),
-              let extendedFeatures = data.readUInt32(at: offset + 52)
-        else { return nil }
+        // Parse CPU info (offset 32) - CPU_INFORMATION union (24 bytes)
+        // For x86/x64: VendorId[3](12) + VersionInfo(4) + FeatureInfo(4) + ExtendedFeatures(4)
+        // For other: ProcessorFeatures[2](16) + padding(8)
+        let isX86Arch = self.processorArchitecture == .intel ||
+                        self.processorArchitecture == .amd64 ||
+                        self.processorArchitecture == .ia32OnWin64 ||
+                        self.processorArchitecture == .ia32OnArm64
 
-        self.cpuInfo = CpuInfo(
-            vendorId: [v0, v1, v2],
-            versionInfo: versionInfo,
-            featureInfo: featureInfo,
-            extendedFeatures: extendedFeatures
-        )
+        if isX86Arch {
+            guard let v0 = data.readUInt32(at: offset + 32),
+                  let v1 = data.readUInt32(at: offset + 36),
+                  let v2 = data.readUInt32(at: offset + 40),
+                  let versionInfo = data.readUInt32(at: offset + 44),
+                  let featureInfo = data.readUInt32(at: offset + 48),
+                  let extendedFeatures = data.readUInt32(at: offset + 52)
+            else { return nil }
+
+            self.cpuInfo = CpuInfo(
+                vendorId: [v0, v1, v2],
+                versionInfo: versionInfo,
+                featureInfo: featureInfo,
+                extendedFeatures: extendedFeatures
+            )
+        } else {
+            guard let feat0 = data.readUInt64(at: offset + 32),
+                  let feat1 = data.readUInt64(at: offset + 40)
+            else { return nil }
+
+            self.cpuInfo = CpuInfo(processorFeatures: [feat0, feat1])
+        }
 
         self.csdVersion = nil  // Will be set by parser if csdVersionRva is valid
     }

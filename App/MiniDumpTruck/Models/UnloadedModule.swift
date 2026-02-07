@@ -3,7 +3,7 @@ import Foundation
 /// Information about a module that was unloaded before the crash
 /// Reference: https://learn.microsoft.com/en-us/windows/win32/api/minidumpapiset/ns-minidumpapiset-minidump_unloaded_module
 public struct UnloadedModule: Identifiable {
-    public static let size = 32  // MINIDUMP_UNLOADED_MODULE size
+    public static let size = 24  // MINIDUMP_UNLOADED_MODULE: BaseOfImage(8) + SizeOfImage(4) + CheckSum(4) + TimeDateStamp(4) + ModuleNameRva(4)
 
     public let id = UUID()
     public let baseAddress: UInt64
@@ -19,7 +19,8 @@ public struct UnloadedModule: Identifiable {
     }
 
     public var endAddress: UInt64 {
-        baseAddress + UInt64(sizeOfImage)
+        let (result, overflow) = baseAddress.addingReportingOverflow(UInt64(sizeOfImage))
+        return overflow ? UInt64.max : result
     }
 
     public var shortName: String {

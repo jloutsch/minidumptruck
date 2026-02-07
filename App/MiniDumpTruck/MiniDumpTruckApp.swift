@@ -151,6 +151,15 @@ struct WelcomeView: View {
         panel.message = "Select a Windows minidump file (.dmp)"
 
         if panel.runModal() == .OK, let url = panel.url {
+            let ext = url.pathExtension.lowercased()
+            guard ext == "dmp" || ext == "mdmp" || ext == "minidump" else {
+                let alert = NSAlert()
+                alert.messageText = "Unsupported File Type"
+                alert.informativeText = "Please select a Windows minidump file (.dmp, .mdmp)."
+                alert.alertStyle = .warning
+                alert.runModal()
+                return
+            }
             loadDocument(from: url)
         }
     }
@@ -161,6 +170,19 @@ struct WelcomeView: View {
         provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, error in
             guard let data = item as? Data,
                   let url = URL(dataRepresentation: data, relativeTo: nil) else {
+                return
+            }
+
+            // Validate file extension before loading
+            let ext = url.pathExtension.lowercased()
+            guard ext == "dmp" || ext == "mdmp" || ext == "minidump" else {
+                DispatchQueue.main.async {
+                    let alert = NSAlert()
+                    alert.messageText = "Unsupported File Type"
+                    alert.informativeText = "Please drop a Windows minidump file (.dmp, .mdmp)."
+                    alert.alertStyle = .warning
+                    alert.runModal()
+                }
                 return
             }
 
@@ -181,7 +203,7 @@ struct WelcomeView: View {
         // Parse in background to keep UI responsive
         Task.detached(priority: .userInitiated) {
             do {
-                let data = try Data(contentsOf: url)
+                let data = try Data(contentsOf: url, options: .mappedIfSafe)
                 let parsedDump = try MinidumpParser.parse(data: data)
                 let document = MinidumpDocument(parsedDump: parsedDump, fileSize: data.count)
 

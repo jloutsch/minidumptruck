@@ -3,7 +3,7 @@ import Foundation
 /// A single thread name entry
 /// Reference: https://learn.microsoft.com/en-us/windows/win32/api/minidumpapiset/ns-minidumpapiset-minidump_thread_name
 public struct ThreadNameEntry: Identifiable {
-    public static let size = 16  // MINIDUMP_THREAD_NAME size
+    public static let size = 12  // MINIDUMP_THREAD_NAME: ThreadId(4) + RvaOfThreadName(8) = 12 (pack(4))
 
     public let id = UUID()
     public let threadId: UInt32
@@ -13,7 +13,7 @@ public struct ThreadNameEntry: Identifiable {
 
     public init?(from data: Data, at offset: Int) {
         guard let threadId = data.readUInt32(at: offset),
-              let threadNameRva = data.readUInt64(at: offset + 8)
+              let threadNameRva = data.readUInt64(at: offset + 4)
         else { return nil }
 
         self.threadId = threadId

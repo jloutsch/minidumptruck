@@ -4,6 +4,7 @@ import Foundation
 /// Reference: https://learn.microsoft.com/en-us/windows/win32/api/minidumpapiset/ns-minidumpapiset-minidump_header
 public struct MinidumpHeader {
     public static let signature: UInt32 = 0x504D444D  // "MDMP" in little-endian
+    public static let formatVersion: UInt16 = 0xA793   // 42899 - standard minidump format version
     public static let size = 32
 
     public let version: UInt16
@@ -36,6 +37,9 @@ public struct MinidumpHeader {
               let timeDateStamp = data.readUInt32(at: 20),
               let flags = data.readUInt64(at: 24)
         else { return nil }
+
+        // Validate minidump format version
+        guard version == Self.formatVersion else { return nil }
 
         self.version = version
         self.implementationVersion = implementationVersion

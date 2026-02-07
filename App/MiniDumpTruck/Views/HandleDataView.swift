@@ -77,15 +77,22 @@ struct HandleDataView: View {
             Divider()
 
             // Handle list
-            List(selection: Binding(
-                get: { nil as UUID? },
-                set: { _ in }
-            )) {
-                ForEach(filteredHandles) { handle in
-                    HandleRowView(handle: handle)
+            if filteredHandles.isEmpty && !viewModel.handleSearchText.isEmpty {
+                ContentUnavailableView.search(text: viewModel.handleSearchText)
+            } else if filteredHandles.isEmpty {
+                ContentUnavailableView(
+                    "No Handles",
+                    systemImage: "hand.raised",
+                    description: Text("This dump does not contain handle data")
+                )
+            } else {
+                List {
+                    ForEach(filteredHandles) { handle in
+                        HandleRowView(handle: handle)
+                    }
                 }
+                .listStyle(.inset)
             }
-            .listStyle(.inset)
         }
         .navigationTitle("Handles (\(document.handles.count))")
     }
