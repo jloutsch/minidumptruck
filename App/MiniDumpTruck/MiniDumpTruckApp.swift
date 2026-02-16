@@ -21,6 +21,17 @@ struct MiniDumpTruckApp: App {
                 }
                 .keyboardShortcut("g", modifiers: .command)
             }
+            CommandGroup(replacing: .importExport) {
+                Button("Export as HTML Report...") {
+                    NotificationCenter.default.post(name: .exportHTML, object: nil)
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+
+                Button("Export as CSV...") {
+                    NotificationCenter.default.post(name: .exportCSV, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+            }
         }
 
         // Also support opening documents directly (double-click .dmp files)
@@ -228,6 +239,8 @@ struct WelcomeView: View {
 
 extension Notification.Name {
     static let goToAddress = Notification.Name("goToAddress")
+    static let exportHTML = Notification.Name("exportHTML")
+    static let exportCSV = Notification.Name("exportCSV")
 }
 
 /// Custom dump truck icon drawn with SwiftUI

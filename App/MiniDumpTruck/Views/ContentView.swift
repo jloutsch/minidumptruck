@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 import MiniDumpTruckCore
 
 struct ContentView: View {
@@ -19,6 +21,25 @@ struct ContentView: View {
                     DetailInspectorView(document: document, viewModel: viewModel)
                 }
                 .navigationSplitViewStyle(.balanced)
+                .toolbar {
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        Menu {
+                            Button {
+                                exportHTML()
+                            } label: {
+                                Label("Export as HTML Report", systemImage: "doc.richtext")
+                            }
+                            Button {
+                                exportCSV()
+                            } label: {
+                                Label("Export as CSV", systemImage: "tablecells")
+                            }
+                        } label: {
+                            Label("Export", systemImage: "square.and.arrow.up")
+                        }
+                        .help("Export report")
+                    }
+                }
             } else {
                 ContentUnavailableView(
                     "No Dump Loaded",
@@ -35,8 +56,55 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .goToAddress)) { _ in
             viewModel.showGoToAddressSheet = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .exportHTML)) { _ in
+            exportHTML()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .exportCSV)) { _ in
+            exportCSV()
+        }
         .sheet(isPresented: $viewModel.showGoToAddressSheet) {
             GoToAddressSheet(viewModel: viewModel, document: document)
+        }
+    }
+
+    private func exportHTML() {
+        guard let dump = document.parsedDump else { return }
+
+        let analysis = CrashAnalyzer(dump: dump).analyze()
+        let html = HTMLExporter.generateReport(from: dump, analysis: analysis)
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.html]
+        panel.nameFieldStringValue = "crash-report.html"
+        panel.title = "Export HTML Report"
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try html.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.runModal()
+            }
+        }
+    }
+
+    private func exportCSV() {
+        guard let dump = document.parsedDump else { return }
+
+        let csv = CSVExporter.generateCSV(from: dump)
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.nameFieldStringValue = "crash-data.csv"
+        panel.title = "Export CSV Data"
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try csv.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.runModal()
+            }
         }
     }
 }
