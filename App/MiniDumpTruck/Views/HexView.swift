@@ -248,9 +248,10 @@ struct HexView: View {
 
     private func jumpToAddress() {
         jumpError = nil
-        let cleaned = jumpAddress.trimmingCharacters(in: .whitespaces)
-            .lowercased()
-            .replacingOccurrences(of: "0x", with: "")
+        var cleaned = jumpAddress.trimmingCharacters(in: .whitespaces).lowercased()
+        if cleaned.hasPrefix("0x") {
+            cleaned = String(cleaned.dropFirst(2))
+        }
 
         guard !cleaned.isEmpty, let address = UInt64(cleaned, radix: 16) else {
             jumpError = "Invalid hex address"

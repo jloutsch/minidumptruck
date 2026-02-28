@@ -104,7 +104,8 @@ public struct HandleDataList {
         else { return nil }
 
         var entries: [HandleEntry] = []
-        let entriesOffset = rva + Int(sizeOfHeader)
+        let (entriesOffset, headerOverflow) = rva.addingReportingOverflow(Int(sizeOfHeader))
+        guard !headerOverflow else { return nil }
         let entryCount = Int(numberOfDescriptors)
         let entrySizeInt = Int(sizeOfDescriptor)
 

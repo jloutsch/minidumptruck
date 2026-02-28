@@ -24,11 +24,10 @@ public struct UnloadedModule: Identifiable {
     }
 
     public var shortName: String {
-        let lowercased = name.lowercased()
-        if let lastBackslash = lowercased.lastIndex(of: "\\") {
+        if let lastBackslash = name.lastIndex(of: "\\") {
             return String(name[name.index(after: lastBackslash)...])
         }
-        if let lastSlash = lowercased.lastIndex(of: "/") {
+        if let lastSlash = name.lastIndex(of: "/") {
             return String(name[name.index(after: lastSlash)...])
         }
         return name
@@ -83,8 +82,12 @@ public struct UnloadedModuleList {
         // Prevent infinite loop with zero entry size
         guard sizeOfEntry > 0 else { return nil }
 
+        // Validate minimum header size
+        guard sizeOfHeader >= 12 else { return nil }
+
         var modules: [UnloadedModule] = []
-        let entriesOffset = rva + Int(sizeOfHeader)
+        let (entriesOffset, headerOverflow) = rva.addingReportingOverflow(Int(sizeOfHeader))
+        guard !headerOverflow else { return nil }
         let entrySize = Int(sizeOfEntry)
 
         // Validate entries fit within file bounds (with overflow protection)

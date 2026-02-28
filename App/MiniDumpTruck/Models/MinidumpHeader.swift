@@ -38,8 +38,8 @@ public struct MinidumpHeader {
               let flags = data.readUInt64(at: 24)
         else { return nil }
 
-        // Validate minidump format version
-        guard version == Self.formatVersion else { return nil }
+        // Validate minidump format version (low 16 bits should match)
+        guard version & 0xFFFF == Self.formatVersion & 0xFFFF else { return nil }
 
         self.version = version
         self.implementationVersion = implementationVersion

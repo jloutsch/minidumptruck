@@ -198,11 +198,10 @@ public struct ModuleInfo: Identifiable {
     public var shortName: String {
         // Extract just the filename from the full path
         // Handle both Windows backslashes and Unix forward slashes
-        let lowercased = name.lowercased()
-        if let lastBackslash = lowercased.lastIndex(of: "\\") {
+        if let lastBackslash = name.lastIndex(of: "\\") {
             return String(name[name.index(after: lastBackslash)...])
         }
-        if let lastSlash = lowercased.lastIndex(of: "/") {
+        if let lastSlash = name.lastIndex(of: "/") {
             return String(name[name.index(after: lastSlash)...])
         }
         return name

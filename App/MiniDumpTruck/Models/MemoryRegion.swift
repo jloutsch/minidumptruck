@@ -309,7 +309,8 @@ public struct MemoryInfoList {
         guard offset >= 0, offset + 16 <= data.count else { return nil }
 
         // SizeOfHeader (4 bytes)
-        guard let sizeOfHeader = data.readUInt32(at: offset) else { return nil }
+        guard let sizeOfHeader = data.readUInt32(at: offset),
+              sizeOfHeader >= 16 else { return nil }
         // SizeOfEntry (4 bytes)
         guard let sizeOfEntry = data.readUInt32(at: offset + 4) else { return nil }
         // NumberOfEntries (8 bytes)

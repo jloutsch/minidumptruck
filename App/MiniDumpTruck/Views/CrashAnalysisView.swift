@@ -331,9 +331,10 @@ struct CrashAnalysisView: View {
 
         isAnalyzing = true
 
-        // Run analysis (could be moved to background thread if needed)
-        let analyzer = CrashAnalyzer(dump: dump)
-        analysis = analyzer.analyze()
+        let result = await Task.detached(priority: .userInitiated) {
+            CrashAnalyzer(dump: dump).analyze()
+        }.value
+        analysis = result
 
         isAnalyzing = false
     }
