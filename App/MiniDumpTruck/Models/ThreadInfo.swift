@@ -1,7 +1,7 @@
 import Foundation
 
 /// Memory descriptor for stack or other memory regions
-public struct MinidumpMemoryDescriptor {
+public struct MinidumpMemoryDescriptor: Sendable, Codable {
     public let startOfMemoryRange: UInt64
     public let dataSize: UInt32
     public let rva: UInt32  // File offset to memory contents
@@ -24,7 +24,7 @@ public struct MinidumpMemoryDescriptor {
 }
 
 /// Location descriptor (RVA + size)
-public struct MinidumpLocationDescriptor {
+public struct MinidumpLocationDescriptor: Sendable, Codable {
     public let dataSize: UInt32
     public let rva: UInt32
 
@@ -39,7 +39,11 @@ public struct MinidumpLocationDescriptor {
 }
 
 /// Thread information from ThreadListStream (48 bytes per thread)
-public struct ThreadInfo: Identifiable {
+public struct ThreadInfo: Identifiable, Sendable, Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id, suspendCount, priorityClass, priority, teb, stack, contextLocation, context
+    }
+
     public static let size = 48
 
     public let id: UInt32  // Thread ID
@@ -90,7 +94,7 @@ public struct ThreadInfo: Identifiable {
 }
 
 /// Collection of threads from ThreadListStream
-public struct ThreadList {
+public struct ThreadList: Sendable, Codable {
     /// Maximum allowed threads to prevent DoS from malformed dumps
     public static let maxThreads: UInt32 = 10_000
 

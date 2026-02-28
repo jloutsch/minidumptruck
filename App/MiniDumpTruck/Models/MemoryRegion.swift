@@ -1,11 +1,21 @@
 import Foundation
 
 /// Memory protection flags
-public struct MemoryProtection: OptionSet {
+public struct MemoryProtection: OptionSet, Sendable, Codable {
     public let rawValue: UInt32
 
     public init(rawValue: UInt32) {
         self.rawValue = rawValue
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self.rawValue = try container.decode(UInt32.self)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 
     public static let noAccess          = MemoryProtection(rawValue: 0x01)
@@ -41,7 +51,7 @@ public struct MemoryProtection: OptionSet {
 }
 
 /// Memory state values
-public enum MemoryState: UInt32 {
+public enum MemoryState: UInt32, Sendable, Codable {
     case commit  = 0x1000
     case reserve = 0x2000
     case free    = 0x10000
@@ -56,7 +66,7 @@ public enum MemoryState: UInt32 {
 }
 
 /// Memory type values
-public enum MemoryType: UInt32 {
+public enum MemoryType: UInt32, Sendable, Codable {
     case image   = 0x1000000
     case mapped  = 0x40000
     case `private` = 0x20000
@@ -71,7 +81,11 @@ public enum MemoryType: UInt32 {
 }
 
 /// Memory region from Memory64ListStream
-public struct MemoryRegion: Identifiable {
+public struct MemoryRegion: Identifiable, Sendable, Codable {
+    private enum CodingKeys: String, CodingKey {
+        case baseAddress, regionSize, dataRva
+    }
+
     public let id = UUID()
     public let baseAddress: UInt64
     public let regionSize: UInt64
@@ -95,7 +109,11 @@ public struct MemoryRegion: Identifiable {
 }
 
 /// Memory info from MemoryInfoListStream (more detailed than MemoryRegion)
-public struct MemoryInfo: Identifiable {
+public struct MemoryInfo: Identifiable, Sendable, Codable {
+    private enum CodingKeys: String, CodingKey {
+        case baseAddress, allocationBase, allocationProtect, regionSize, state, protect, type
+    }
+
     public let id = UUID()
     public let baseAddress: UInt64
     public let allocationBase: UInt64
@@ -132,7 +150,7 @@ public struct MemoryInfo: Identifiable {
 }
 
 /// Collection of memory regions from Memory64ListStream
-public struct Memory64List {
+public struct Memory64List: Sendable, Codable {
     /// Maximum allowed memory regions to prevent DoS from malformed dumps
     public static let maxRegions: UInt64 = 10_000
 
@@ -223,7 +241,7 @@ public struct Memory64List {
 
 /// Collection of memory regions from MemoryListStream (32-bit RVAs)
 /// Used in standard/normal minidumps (as opposed to Memory64List for full-memory dumps)
-public struct MemoryList {
+public struct MemoryList: Sendable, Codable {
     public static let maxRegions: UInt32 = 10_000
     /// Descriptor size: StartOfMemoryRange(8) + DataSize(4) + Rva(4) = 16
     public static let descriptorSize = 16
@@ -295,7 +313,7 @@ public struct MemoryList {
 }
 
 /// Collection of memory info entries from MemoryInfoListStream
-public struct MemoryInfoList {
+public struct MemoryInfoList: Sendable, Codable {
     public static let entrySize = 48
     /// Maximum allowed entries to prevent DoS from malformed dumps
     public static let maxEntries: UInt64 = 1_000_000

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Processor architecture types
-public enum ProcessorArchitecture: UInt16 {
+public enum ProcessorArchitecture: UInt16, Sendable, Codable {
     case intel    = 0
     case mips     = 1
     case alpha    = 2
@@ -42,7 +42,7 @@ public enum ProcessorArchitecture: UInt16 {
 }
 
 /// Windows product types
-public enum ProductType: UInt8 {
+public enum ProductType: UInt8, Sendable, Codable {
     case workstation = 1
     case domainController = 2
     case server = 3
@@ -57,7 +57,7 @@ public enum ProductType: UInt8 {
 }
 
 /// Windows platform IDs (VER_PLATFORM_* constants)
-public enum PlatformId: UInt32 {
+public enum PlatformId: UInt32, Sendable, Codable {
     case win32s = 0          // VER_PLATFORM_WIN32s
     case win32Windows = 1    // VER_PLATFORM_WIN32_WINDOWS
     case win32NT = 2         // VER_PLATFORM_WIN32_NT
@@ -74,7 +74,7 @@ public enum PlatformId: UInt32 {
 /// CPU information from CPU_INFORMATION union
 /// For x86/x64: VendorId + VersionInfo + FeatureInfo + ExtendedFeatures
 /// For other architectures: ProcessorFeatures[2]
-public struct CpuInfo {
+public struct CpuInfo: Sendable, Codable {
     // x86/x64 fields
     public let vendorId: [UInt32]?  // 3 x UInt32 for CPUID vendor string
     public let versionInfo: UInt32?
@@ -140,7 +140,7 @@ public struct CpuInfo {
 }
 
 /// System information from the SystemInfoStream
-public struct SystemInfo {
+public struct SystemInfo: Sendable, Codable {
     public let processorArchitecture: ProcessorArchitecture
     public let processorLevel: UInt16
     public let processorRevision: UInt16

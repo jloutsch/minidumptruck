@@ -70,6 +70,7 @@ struct MinidumpDocument: FileDocument {
     var threadNames: ThreadNameList? { parsedDump?.threadNames }
     var handleData: HandleDataList? { parsedDump?.handleData }
     var handles: [HandleEntry] { parsedDump?.handleData?.entries ?? [] }
+    var parseWarnings: [ParseWarning] { parsedDump?.parseWarnings ?? [] }
 
     var faultingThread: ThreadInfo? {
         guard let dump = parsedDump else { return nil }

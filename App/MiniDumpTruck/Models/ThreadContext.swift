@@ -1,8 +1,24 @@
 import Foundation
 
+/// A single 128-bit XMM register value
+public struct XMMRegister: Sendable, Equatable, Codable {
+    public let low: UInt64
+    public let high: UInt64
+
+    public init(low: UInt64, high: UInt64) {
+        self.low = low
+        self.high = high
+    }
+
+    /// Formatted as 32-character hex string (high bits first)
+    public var hexString: String {
+        String(format: "%016llX%016llX", high, low)
+    }
+}
+
 /// x64 CPU context (CONTEXT_AMD64) - 1232 bytes
 /// Reference: https://docs.rs/minidump-common/latest/minidump_common/format/struct.CONTEXT_AMD64.html
-public struct ThreadContext {
+public struct ThreadContext: Sendable, Codable {
     public static let size = 1232
     public static let contextFlagsOffset = 48
 
@@ -53,22 +69,22 @@ public struct ThreadContext {
     public let rip: UInt64
 
     // XMM registers (from FXSAVE area at offset 256)
-    public let xmm0: (UInt64, UInt64)?
-    public let xmm1: (UInt64, UInt64)?
-    public let xmm2: (UInt64, UInt64)?
-    public let xmm3: (UInt64, UInt64)?
-    public let xmm4: (UInt64, UInt64)?
-    public let xmm5: (UInt64, UInt64)?
-    public let xmm6: (UInt64, UInt64)?
-    public let xmm7: (UInt64, UInt64)?
-    public let xmm8: (UInt64, UInt64)?
-    public let xmm9: (UInt64, UInt64)?
-    public let xmm10: (UInt64, UInt64)?
-    public let xmm11: (UInt64, UInt64)?
-    public let xmm12: (UInt64, UInt64)?
-    public let xmm13: (UInt64, UInt64)?
-    public let xmm14: (UInt64, UInt64)?
-    public let xmm15: (UInt64, UInt64)?
+    public let xmm0: XMMRegister?
+    public let xmm1: XMMRegister?
+    public let xmm2: XMMRegister?
+    public let xmm3: XMMRegister?
+    public let xmm4: XMMRegister?
+    public let xmm5: XMMRegister?
+    public let xmm6: XMMRegister?
+    public let xmm7: XMMRegister?
+    public let xmm8: XMMRegister?
+    public let xmm9: XMMRegister?
+    public let xmm10: XMMRegister?
+    public let xmm11: XMMRegister?
+    public let xmm12: XMMRegister?
+    public let xmm13: XMMRegister?
+    public let xmm14: XMMRegister?
+    public let xmm15: XMMRegister?
 
     // Floating point state stored separately
     public let floatSaveValid: Bool
@@ -168,11 +184,11 @@ public struct ThreadContext {
         // FXSAVE layout: 160 bytes header, then 16 XMM regs at 16 bytes each
         if floatSaveValid {
             let xmmBase = offset + 256 + 160  // offset 416
-            func readXmm(_ idx: Int) -> (UInt64, UInt64)? {
+            func readXmm(_ idx: Int) -> XMMRegister? {
                 let o = xmmBase + idx * 16
                 guard let lo = data.readUInt64(at: o),
                       let hi = data.readUInt64(at: o + 8) else { return nil }
-                return (lo, hi)
+                return XMMRegister(low: lo, high: hi)
             }
             self.xmm0 = readXmm(0);   self.xmm1 = readXmm(1)
             self.xmm2 = readXmm(2);   self.xmm3 = readXmm(3)
@@ -219,15 +235,15 @@ public struct ThreadContext {
 
     /// XMM registers as name-value pairs (formatted as hex string)
     public var xmmRegisters: [(name: String, value: String)] {
-        let regs: [(String, (UInt64, UInt64)?)] = [
+        let regs: [(String, XMMRegister?)] = [
             ("XMM0", xmm0), ("XMM1", xmm1), ("XMM2", xmm2), ("XMM3", xmm3),
             ("XMM4", xmm4), ("XMM5", xmm5), ("XMM6", xmm6), ("XMM7", xmm7),
             ("XMM8", xmm8), ("XMM9", xmm9), ("XMM10", xmm10), ("XMM11", xmm11),
             ("XMM12", xmm12), ("XMM13", xmm13), ("XMM14", xmm14), ("XMM15", xmm15)
         ]
         return regs.compactMap { name, val in
-            guard let (lo, hi) = val else { return nil }
-            return (name, String(format: "%016llX%016llX", hi, lo))
+            guard let reg = val else { return nil }
+            return (name, reg.hexString)
         }
     }
 

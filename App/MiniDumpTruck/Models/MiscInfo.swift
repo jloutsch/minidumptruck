@@ -1,11 +1,21 @@
 import Foundation
 
 /// MINIDUMP_MISC_INFO flags
-public struct MiscInfoFlags: OptionSet {
+public struct MiscInfoFlags: OptionSet, Sendable, Codable {
     public let rawValue: UInt32
 
     public init(rawValue: UInt32) {
         self.rawValue = rawValue
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self.rawValue = try container.decode(UInt32.self)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 
     public static let processId        = MiscInfoFlags(rawValue: 0x00000001)
@@ -21,7 +31,7 @@ public struct MiscInfoFlags: OptionSet {
 
 /// Miscellaneous process information from MiscInfoStream
 /// Reference: https://learn.microsoft.com/en-us/windows/win32/api/minidumpapiset/ns-minidumpapiset-minidump_misc_info
-public struct MiscInfo {
+public struct MiscInfo: Sendable, Codable {
     public static let minSize = 24  // MINIDUMP_MISC_INFO minimum size
 
     public let sizeOfInfo: UInt32

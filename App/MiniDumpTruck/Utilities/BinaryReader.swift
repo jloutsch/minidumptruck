@@ -97,7 +97,7 @@ public extension Data {
 }
 
 /// A reader that tracks position in binary data
-public struct BinaryDataReader {
+public struct BinaryDataReader: Sendable {
     public let data: Data
     public private(set) var position: Int = 0
 

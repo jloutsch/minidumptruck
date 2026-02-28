@@ -1,7 +1,7 @@
 import Foundation
 
 /// Exception information from ExceptionStream
-public struct ExceptionInfo {
+public struct ExceptionInfo: Sendable, Codable {
     public let threadId: UInt32
     public let exceptionCode: UInt32
     public let exceptionFlags: UInt32

@@ -8,11 +8,14 @@ struct MiniDumpTruckApp: App {
     var body: some Scene {
         // Main welcome window
         WindowGroup {
-            if let document = openedDocument {
-                ContentView(document: document)
-            } else {
-                WelcomeView(openedDocument: $openedDocument)
+            Group {
+                if let document = openedDocument {
+                    ContentView(document: document)
+                } else {
+                    WelcomeView(openedDocument: $openedDocument)
+                }
             }
+            .helpWindowHandler()
         }
         .commands {
             CommandGroup(after: .toolbar) {
@@ -32,12 +35,28 @@ struct MiniDumpTruckApp: App {
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
             }
+            CommandGroup(replacing: .help) {
+                Button("MiniDumpTruck Help") {
+                    NotificationCenter.default.post(name: .openHelp, object: nil)
+                }
+                .keyboardShortcut("?", modifiers: .command)
+
+                Divider()
+
+                Link("Visit GitHub Repository",
+                     destination: URL(string: "https://github.com/jbalthis/minidumptruck")!)
+            }
         }
 
         // Also support opening documents directly (double-click .dmp files)
         DocumentGroup(viewing: MinidumpDocument.self) { file in
             ContentView(document: file.document)
         }
+
+        Window("MiniDumpTruck Help", id: "help") {
+            HelpView()
+        }
+        .defaultSize(width: 600, height: 700)
     }
 }
 
@@ -241,6 +260,131 @@ extension Notification.Name {
     static let goToAddress = Notification.Name("goToAddress")
     static let exportHTML = Notification.Name("exportHTML")
     static let exportCSV = Notification.Name("exportCSV")
+    static let openHelp = Notification.Name("openHelp")
+}
+
+private struct HelpWindowHandler: ViewModifier {
+    @Environment(\.openWindow) private var openWindow
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .openHelp)) { _ in
+                openWindow(id: "help")
+            }
+    }
+}
+
+extension View {
+    func helpWindowHandler() -> some View {
+        modifier(HelpWindowHandler())
+    }
+}
+
+struct HelpView: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                // Header
+                HStack(spacing: 12) {
+                    Image(systemName: "truck.box.fill")
+                        .font(.system(size: 36))
+                        .foregroundStyle(.blue)
+                    VStack(alignment: .leading) {
+                        Text("MiniDumpTruck")
+                            .font(.title)
+                            .fontWeight(.bold)
+                        Text("Windows Crash Dump Analyzer for macOS")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Divider()
+
+                helpSection("Overview") {
+                    Text("MiniDumpTruck lets you open and analyze Windows minidump (.dmp) files on macOS. It parses the binary dump format and presents crash data in an interactive interface \u{2014} no Windows or WinDbg required.")
+                }
+
+                helpSection("Supported File Types") {
+                    Label(".dmp", systemImage: "doc")
+                    Label(".mdmp", systemImage: "doc")
+                    Label(".minidump", systemImage: "doc")
+                }
+
+                helpSection("Sidebar Navigation") {
+                    navigationItem("Summary", icon: "doc.text", description: "Crash overview with exception and system context")
+                    navigationItem("Threads", icon: "text.line.first.and.arrowtriangle.forward", description: "Thread list with faulting thread highlighted")
+                    navigationItem("Modules", icon: "shippingbox", description: "Loaded DLLs with addresses, versions, and search")
+                    navigationItem("Memory", icon: "memorychip", description: "Memory regions with address lookup")
+                    navigationItem("Exception", icon: "exclamationmark.triangle", description: "Exception details and crash context")
+                    navigationItem("System Info", icon: "cpu", description: "OS version, architecture, and processor details")
+                    navigationItem("Handles", icon: "door.left.hand.open", description: "Open kernel object handles")
+                    navigationItem("Crash Analysis", icon: "wand.and.stars", description: "Automated diagnosis with blame attribution")
+                    navigationItem("Hex Viewer", icon: "number", description: "Raw memory inspection with search")
+                    navigationItem("Stream Directory", icon: "list.bullet.rectangle", description: "Low-level stream index")
+                }
+
+                helpSection("Keyboard Shortcuts") {
+                    shortcutRow("Go to Address", shortcut: "\u{2318}G")
+                    shortcutRow("Export HTML Report", shortcut: "\u{21E7}\u{2318}E")
+                    shortcutRow("Export CSV", shortcut: "\u{21E7}\u{2318}S")
+                    shortcutRow("MiniDumpTruck Help", shortcut: "\u{2318}?")
+                }
+
+                helpSection("Tips") {
+                    tipRow("Drag and drop a .dmp file onto the welcome screen to open it quickly.")
+                    tipRow("Use Crash Analysis for automated diagnosis \u{2014} it walks the stack and attributes blame to a specific module.")
+                    tipRow("The Hex Viewer lets you inspect raw memory bytes at any address captured in the dump.")
+                    tipRow("Export reports as HTML for sharing or CSV for spreadsheet analysis.")
+                }
+            }
+            .padding(24)
+        }
+    }
+
+    private func helpSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+            content()
+        }
+    }
+
+    private func navigationItem(_ name: String, icon: String, description: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .frame(width: 20)
+                .foregroundStyle(.blue)
+            Text(name)
+                .fontWeight(.medium)
+            Text("\u{2014} \(description)")
+                .foregroundStyle(.secondary)
+        }
+        .font(.callout)
+    }
+
+    private func shortcutRow(_ action: String, shortcut: String) -> some View {
+        HStack {
+            Text(action)
+            Spacer()
+            Text(shortcut)
+                .font(.system(.callout, design: .monospaced))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+        }
+        .font(.callout)
+    }
+
+    private func tipRow(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "lightbulb")
+                .foregroundStyle(.yellow)
+                .frame(width: 20)
+            Text(text)
+                .font(.callout)
+        }
+    }
 }
 
 /// Custom dump truck icon drawn with SwiftUI

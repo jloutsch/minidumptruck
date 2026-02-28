@@ -127,7 +127,7 @@ public enum SystemModules {
         return .thirdParty
     }
 
-    public enum ModuleCategory {
+    public enum ModuleCategory: String, Sendable, Codable {
         case system         // Windows OS modules
         case graphicsDriver // GPU drivers
         case application    // Main application modules

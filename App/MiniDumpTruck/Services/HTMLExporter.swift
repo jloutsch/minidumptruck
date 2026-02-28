@@ -1,7 +1,7 @@
 import Foundation
 
 /// Generates a self-contained HTML crash report from a parsed minidump
-public struct HTMLExporter {
+public struct HTMLExporter: Sendable {
 
     /// Generate a complete HTML report
     public static func generateReport(
@@ -12,6 +12,10 @@ public struct HTMLExporter {
         var sections: [String] = []
 
         sections.append(summarySection(dump: dump, fileName: fileName))
+
+        if !dump.parseWarnings.isEmpty {
+            sections.append(warningsSection(dump.parseWarnings))
+        }
 
         if let systemInfo = dump.systemInfo {
             sections.append(systemInfoSection(systemInfo))
@@ -79,6 +83,29 @@ public struct HTMLExporter {
         <table class="info-table">\(rows)</table>
         </section>
         """
+    }
+
+    private static func warningsSection(_ warnings: [ParseWarning]) -> String {
+        var html = """
+        <section id="warnings" style="border-color: var(--orange);">
+        <h2 style="color: var(--orange);">Parse Warnings (\(warnings.count))</h2>
+        <table class="data-table"><thead><tr>
+        <th>Stream</th><th>Offset</th><th>Message</th>
+        </tr></thead><tbody>
+        """
+
+        for warning in warnings {
+            let streamName = warning.streamType?.displayName ?? "Unknown"
+            let offset = warning.offset.map { String(format: "0x%08X", $0) } ?? "-"
+            html += "<tr>"
+            html += "<td>\(escapeHTML(streamName))</td>"
+            html += "<td class=\"mono\">\(offset)</td>"
+            html += "<td>\(escapeHTML(warning.message))</td>"
+            html += "</tr>"
+        }
+
+        html += "</tbody></table></section>"
+        return html
     }
 
     private static func systemInfoSection(_ info: SystemInfo) -> String {
@@ -444,6 +471,7 @@ public struct HTMLExporter {
         <nav id="toc">
         <strong>Contents:</strong>
         <a href="#summary">Summary</a>
+        <a href="#warnings">Warnings</a>
         <a href="#system-info">System</a>
         <a href="#exception">Exception</a>
         <a href="#analysis">Analysis</a>

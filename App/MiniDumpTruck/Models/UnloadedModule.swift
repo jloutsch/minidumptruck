@@ -2,7 +2,11 @@ import Foundation
 
 /// Information about a module that was unloaded before the crash
 /// Reference: https://learn.microsoft.com/en-us/windows/win32/api/minidumpapiset/ns-minidumpapiset-minidump_unloaded_module
-public struct UnloadedModule: Identifiable {
+public struct UnloadedModule: Identifiable, Sendable, Codable {
+    private enum CodingKeys: String, CodingKey {
+        case baseAddress, sizeOfImage, checksum, timeDateStamp, moduleNameRva, name
+    }
+
     public static let size = 24  // MINIDUMP_UNLOADED_MODULE: BaseOfImage(8) + SizeOfImage(4) + CheckSum(4) + TimeDateStamp(4) + ModuleNameRva(4)
 
     public let id = UUID()
@@ -59,7 +63,7 @@ public struct UnloadedModule: Identifiable {
 }
 
 /// Collection of unloaded modules from UnloadedModuleListStream
-public struct UnloadedModuleList {
+public struct UnloadedModuleList: Sendable, Codable {
     public static let maxModules: UInt32 = 10_000
 
     public let modules: [UnloadedModule]

@@ -2,7 +2,12 @@ import Foundation
 
 /// A single handle entry from the handle data stream
 /// Reference: https://learn.microsoft.com/en-us/windows/win32/api/minidumpapiset/ns-minidumpapiset-minidump_handle_descriptor
-public struct HandleEntry: Identifiable {
+public struct HandleEntry: Identifiable, Sendable, Codable {
+    private enum CodingKeys: String, CodingKey {
+        case handle, typeNameRva, objectNameRva, attributes, grantedAccess
+        case handleCount, pointerCount, objectInfoRva, typeName, objectName
+    }
+
     public static let sizeV1 = 32  // MINIDUMP_HANDLE_DESCRIPTOR size
     public static let sizeV2 = 40  // MINIDUMP_HANDLE_DESCRIPTOR_2 size
 
@@ -72,7 +77,7 @@ public struct HandleEntry: Identifiable {
 
 /// Collection of handle data from HandleDataStream
 /// Reference: https://learn.microsoft.com/en-us/windows/win32/api/minidumpapiset/ns-minidumpapiset-minidump_handle_data_stream
-public struct HandleDataList {
+public struct HandleDataList: Sendable, Codable {
     public static let headerSize = 16  // MINIDUMP_HANDLE_DATA_STREAM header size
     public static let maxEntries: UInt32 = 100_000
 

@@ -2,7 +2,11 @@ import Foundation
 
 /// A single thread name entry
 /// Reference: https://learn.microsoft.com/en-us/windows/win32/api/minidumpapiset/ns-minidumpapiset-minidump_thread_name
-public struct ThreadNameEntry: Identifiable {
+public struct ThreadNameEntry: Identifiable, Sendable, Codable {
+    private enum CodingKeys: String, CodingKey {
+        case threadId, threadNameRva, name
+    }
+
     public static let size = 12  // MINIDUMP_THREAD_NAME: ThreadId(4) + RvaOfThreadName(8) = 12 (pack(4))
 
     public let id = UUID()
@@ -26,7 +30,7 @@ public struct ThreadNameEntry: Identifiable {
 }
 
 /// Collection of thread names from ThreadNamesStream
-public struct ThreadNameList {
+public struct ThreadNameList: Sendable, Codable {
     public static let maxEntries: UInt32 = 50_000
 
     public let entries: [ThreadNameEntry]

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Generates CSV spreadsheet data from a parsed minidump
-public struct CSVExporter {
+public struct CSVExporter: Sendable {
 
     /// Generate a multi-section CSV from a parsed minidump
     public static func generateCSV(from dump: ParsedMinidump) -> String {

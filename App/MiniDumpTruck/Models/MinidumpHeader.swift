@@ -2,7 +2,7 @@ import Foundation
 
 /// Windows Minidump file header (32 bytes)
 /// Reference: https://learn.microsoft.com/en-us/windows/win32/api/minidumpapiset/ns-minidumpapiset-minidump_header
-public struct MinidumpHeader {
+public struct MinidumpHeader: Sendable, Codable {
     public static let signature: UInt32 = 0x504D444D  // "MDMP" in little-endian
     public static let formatVersion: UInt16 = 0xA793   // 42899 - standard minidump format version
     public static let size = 32
@@ -52,11 +52,21 @@ public struct MinidumpHeader {
 }
 
 /// MINIDUMP_TYPE flags
-public struct MinidumpType: OptionSet {
+public struct MinidumpType: OptionSet, Sendable, Codable {
     public let rawValue: UInt64
 
     public init(rawValue: UInt64) {
         self.rawValue = rawValue
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self.rawValue = try container.decode(UInt64.self)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 
     public static let normal: MinidumpType            = []

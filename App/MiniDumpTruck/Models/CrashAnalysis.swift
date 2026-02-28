@@ -1,7 +1,7 @@
 import Foundation
 
 /// Result of crash analysis
-public struct CrashAnalysis {
+public struct CrashAnalysis: Sendable, Codable {
     public let stackFrames: [StackFrame]
     public let blameModule: BlameResult?
     public let crashSummary: CrashSummary
@@ -16,7 +16,11 @@ public struct CrashAnalysis {
 }
 
 /// Single stack frame
-public struct StackFrame: Identifiable {
+public struct StackFrame: Identifiable, Sendable, Codable {
+    private enum CodingKeys: String, CodingKey {
+        case address, module, offsetInModule, frameType, confidence
+    }
+
     public let id = UUID()
     public let address: UInt64
     public let module: ModuleInfo?
@@ -24,13 +28,13 @@ public struct StackFrame: Identifiable {
     public let frameType: FrameType
     public let confidence: FrameConfidence
 
-    public enum FrameType {
+    public enum FrameType: String, Sendable, Codable {
         case instructionPointer  // RIP - current execution
         case returnAddress       // From stack scan
         case framePointer        // From RBP chain
     }
 
-    public enum FrameConfidence {
+    public enum FrameConfidence: String, Sendable, Codable {
         case high    // From RBP chain or known call instruction
         case medium  // Return address in module text section
         case low     // Address in module range but uncertain
@@ -53,12 +57,12 @@ public struct StackFrame: Identifiable {
 }
 
 /// Blame analysis result
-public struct BlameResult {
+public struct BlameResult: Sendable, Codable {
     public let module: ModuleInfo
     public let frame: StackFrame
     public let reason: BlameReason
 
-    public enum BlameReason {
+    public enum BlameReason: String, Sendable, Codable {
         case directCrash              // Exception address is in this module
         case firstNonSystemFrame      // First non-system DLL on stack
         case graphicsDriver           // Known graphics driver
@@ -86,7 +90,7 @@ public struct BlameResult {
 }
 
 /// High-level crash summary
-public struct CrashSummary {
+public struct CrashSummary: Sendable, Codable {
     public let exceptionType: String
     public let exceptionDescription: String
     public let faultingAddress: UInt64
@@ -105,7 +109,7 @@ public struct CrashSummary {
 }
 
 /// Overall analysis confidence
-public enum AnalysisConfidence {
+public enum AnalysisConfidence: String, Sendable, Codable {
     case high      // Full RBP chain available
     case medium    // Heuristic scan with good results
     case low       // Limited stack data or ambiguous results

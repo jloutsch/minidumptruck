@@ -8,7 +8,11 @@ let package = Package(
     ],
     products: [
         .executable(name: "MiniDumpTruck", targets: ["MiniDumpTruck"]),
+        .executable(name: "minidumptruck-cli", targets: ["MiniDumpTruckCLI"]),
         .library(name: "MiniDumpTruckCore", targets: ["MiniDumpTruckCore"])
+    ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0")
     ],
     targets: [
         // Core library for testing (non-UI code only)
@@ -49,6 +53,15 @@ let package = Package(
                 "Views",
                 "ViewModels"
             ]
+        ),
+        // CLI tool
+        .executableTarget(
+            name: "MiniDumpTruckCLI",
+            dependencies: [
+                "MiniDumpTruckCore",
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
+            ],
+            path: "CLI"
         ),
         // Test target for core library
         .testTarget(

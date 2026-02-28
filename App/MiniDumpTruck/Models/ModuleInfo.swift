@@ -1,7 +1,7 @@
 import Foundation
 
 /// Version information structure (VS_FIXEDFILEINFO - 52 bytes)
-public struct ModuleVersion {
+public struct ModuleVersion: Sendable, Codable {
     public let signature: UInt32  // 0xFEEF04BD
     public let structVersion: UInt32
     public let fileVersionHigh: UInt32
@@ -78,7 +78,7 @@ public struct ModuleVersion {
 }
 
 /// CodeView debug info record (CV_INFO_PDB70)
-public struct CodeViewRecord {
+public struct CodeViewRecord: Sendable, Codable {
     public static let signaturePDB70: UInt32 = 0x53445352  // "RSDS"
     public static let signaturePDB20: UInt32 = 0x3031424E  // "NB10"
 
@@ -173,7 +173,12 @@ public struct CodeViewRecord {
 }
 
 /// Module information from ModuleListStream (108 bytes per module)
-public struct ModuleInfo: Identifiable {
+public struct ModuleInfo: Identifiable, Sendable, Codable {
+    private enum CodingKeys: String, CodingKey {
+        case baseAddress, sizeOfImage, checksum, timeDateStamp, moduleNameRva
+        case version, cvRecordLocation, miscRecordLocation, codeViewRecord, name
+    }
+
     public static let size = 108
 
     public let id = UUID()
@@ -250,7 +255,7 @@ public struct ModuleInfo: Identifiable {
 }
 
 /// Collection of modules from ModuleListStream
-public struct ModuleList {
+public struct ModuleList: Sendable, Codable {
     /// Maximum allowed modules to prevent DoS from malformed dumps
     public static let maxModules: UInt32 = 50_000
 

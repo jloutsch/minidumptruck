@@ -1,7 +1,7 @@
 import Foundation
 
 /// Main crash analysis service
-public struct CrashAnalyzer {
+public struct CrashAnalyzer: Sendable {
     public let dump: ParsedMinidump
 
     /// Maximum stack bytes to scan

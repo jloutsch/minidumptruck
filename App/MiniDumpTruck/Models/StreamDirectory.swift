@@ -2,7 +2,7 @@ import Foundation
 
 /// Stream type identifiers in a Windows Minidump
 /// Reference: https://learn.microsoft.com/en-us/windows/win32/api/minidumpapiset/ne-minidumpapiset-minidump_stream_type
-public enum StreamType: UInt32, CaseIterable {
+public enum StreamType: UInt32, CaseIterable, Sendable, Codable {
     case unused                    = 0
     case reserved0                 = 1
     case reserved1                 = 2
@@ -88,7 +88,11 @@ public enum StreamType: UInt32, CaseIterable {
 }
 
 /// A single entry in the stream directory (12 bytes)
-public struct StreamDirectoryEntry: Identifiable {
+public struct StreamDirectoryEntry: Identifiable, Sendable, Codable {
+    private enum CodingKeys: String, CodingKey {
+        case streamType, dataSize, rva
+    }
+
     public static let size = 12
 
     public let id = UUID()
@@ -121,7 +125,7 @@ public struct StreamDirectoryEntry: Identifiable {
 }
 
 /// Collection of stream directory entries
-public struct StreamDirectory {
+public struct StreamDirectory: Sendable, Codable {
     /// Maximum allowed streams to prevent DoS from malformed dumps
     public static let maxStreams = 1000
 

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Errors that can occur during minidump parsing
-public enum MinidumpParseError: Error, LocalizedError {
+public enum MinidumpParseError: Error, LocalizedError, Sendable {
     case invalidSignature
     case invalidHeader
     case invalidStreamDirectory
@@ -24,8 +24,26 @@ public enum MinidumpParseError: Error, LocalizedError {
     }
 }
 
+/// A warning generated during parsing when a stream fails to parse
+public struct ParseWarning: Sendable, Identifiable, Codable {
+    private enum CodingKeys: String, CodingKey {
+        case streamType, offset, message
+    }
+
+    public let id = UUID()
+    public let streamType: StreamType?
+    public let offset: UInt32?
+    public let message: String
+
+    public init(streamType: StreamType? = nil, offset: UInt32? = nil, message: String) {
+        self.streamType = streamType
+        self.offset = offset
+        self.message = message
+    }
+}
+
 /// Parsed minidump data
-public struct ParsedMinidump {
+public struct ParsedMinidump: Sendable {
     public let header: MinidumpHeader
     public let streamDirectory: StreamDirectory
     public var systemInfo: SystemInfo?
@@ -39,6 +57,7 @@ public struct ParsedMinidump {
     public var unloadedModuleList: UnloadedModuleList?
     public var threadNames: ThreadNameList?
     public var handleData: HandleDataList?
+    public var parseWarnings: [ParseWarning] = []
 
     public let data: Data  // Keep reference to file data for memory access
 
@@ -86,37 +105,79 @@ public struct MinidumpParser {
                         sysInfo.setCsdVersion(version)
                     }
                     result.systemInfo = sysInfo
+                } else {
+                    result.parseWarnings.append(ParseWarning(streamType: type, offset: entry.rva, message: "Failed to parse System Info stream at offset \(entry.rva)"))
                 }
 
             case .exception:
-                result.exception = ExceptionInfo(from: data, at: entry.rva)
+                if let exception = ExceptionInfo(from: data, at: entry.rva) {
+                    result.exception = exception
+                } else {
+                    result.parseWarnings.append(ParseWarning(streamType: type, offset: entry.rva, message: "Failed to parse Exception stream at offset \(entry.rva)"))
+                }
 
             case .threadList:
-                result.threadList = ThreadList(from: data, at: entry.rva)
+                if let threadList = ThreadList(from: data, at: entry.rva) {
+                    result.threadList = threadList
+                } else {
+                    result.parseWarnings.append(ParseWarning(streamType: type, offset: entry.rva, message: "Failed to parse Thread List stream at offset \(entry.rva)"))
+                }
 
             case .moduleList:
-                result.moduleList = ModuleList(from: data, at: entry.rva)
+                if let moduleList = ModuleList(from: data, at: entry.rva) {
+                    result.moduleList = moduleList
+                } else {
+                    result.parseWarnings.append(ParseWarning(streamType: type, offset: entry.rva, message: "Failed to parse Module List stream at offset \(entry.rva)"))
+                }
 
             case .memoryList:
-                result.memoryList = MemoryList(from: data, at: entry.rva)
+                if let memoryList = MemoryList(from: data, at: entry.rva) {
+                    result.memoryList = memoryList
+                } else {
+                    result.parseWarnings.append(ParseWarning(streamType: type, offset: entry.rva, message: "Failed to parse Memory List stream at offset \(entry.rva)"))
+                }
 
             case .memory64List:
-                result.memory64List = Memory64List(from: data, at: entry.rva)
+                if let memory64List = Memory64List(from: data, at: entry.rva) {
+                    result.memory64List = memory64List
+                } else {
+                    result.parseWarnings.append(ParseWarning(streamType: type, offset: entry.rva, message: "Failed to parse Memory64 List stream at offset \(entry.rva)"))
+                }
 
             case .memoryInfoList:
-                result.memoryInfoList = MemoryInfoList(from: data, at: entry.rva)
+                if let memoryInfoList = MemoryInfoList(from: data, at: entry.rva) {
+                    result.memoryInfoList = memoryInfoList
+                } else {
+                    result.parseWarnings.append(ParseWarning(streamType: type, offset: entry.rva, message: "Failed to parse Memory Info List stream at offset \(entry.rva)"))
+                }
 
             case .miscInfo:
-                result.miscInfo = MiscInfo(from: data, at: Int(entry.rva))
+                if let miscInfo = MiscInfo(from: data, at: Int(entry.rva)) {
+                    result.miscInfo = miscInfo
+                } else {
+                    result.parseWarnings.append(ParseWarning(streamType: type, offset: entry.rva, message: "Failed to parse Misc Info stream at offset \(entry.rva)"))
+                }
 
             case .unloadedModuleList:
-                result.unloadedModuleList = UnloadedModuleList(from: data, at: entry.rva)
+                if let unloadedModuleList = UnloadedModuleList(from: data, at: entry.rva) {
+                    result.unloadedModuleList = unloadedModuleList
+                } else {
+                    result.parseWarnings.append(ParseWarning(streamType: type, offset: entry.rva, message: "Failed to parse Unloaded Module List stream at offset \(entry.rva)"))
+                }
 
             case .threadNames:
-                result.threadNames = ThreadNameList(from: data, at: entry.rva)
+                if let threadNames = ThreadNameList(from: data, at: entry.rva) {
+                    result.threadNames = threadNames
+                } else {
+                    result.parseWarnings.append(ParseWarning(streamType: type, offset: entry.rva, message: "Failed to parse Thread Names stream at offset \(entry.rva)"))
+                }
 
             case .handleData:
-                result.handleData = HandleDataList(from: data, at: entry.rva)
+                if let handleData = HandleDataList(from: data, at: entry.rva) {
+                    result.handleData = handleData
+                } else {
+                    result.parseWarnings.append(ParseWarning(streamType: type, offset: entry.rva, message: "Failed to parse Handle Data stream at offset \(entry.rva)"))
+                }
 
             default:
                 break

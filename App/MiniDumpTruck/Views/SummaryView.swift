@@ -11,6 +11,12 @@ struct SummaryView: View {
                 // Header
                 headerSection
 
+                // Parse warnings (if any)
+                if !document.parseWarnings.isEmpty {
+                    Divider()
+                    warningsSection
+                }
+
                 Divider()
 
                 // Exception summary (if present)
@@ -158,6 +164,37 @@ struct SummaryView: View {
                         Text("CPU Vendor:")
                             .fontWeight(.medium)
                         Text(systemInfo.cpuInfo.vendorString)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private var warningsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Parse Warnings (\(document.parseWarnings.count))", systemImage: "exclamationmark.triangle")
+                .font(.headline)
+                .foregroundStyle(.orange)
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(document.parseWarnings) { warning in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .font(.caption)
+                            VStack(alignment: .leading, spacing: 2) {
+                                if let streamType = warning.streamType {
+                                    Text(streamType.displayName)
+                                        .fontWeight(.medium)
+                                        .font(.callout)
+                                }
+                                Text(warning.message)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
