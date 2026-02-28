@@ -4,16 +4,24 @@ import MiniDumpTruckCore
 @main
 struct MiniDumpTruckApp: App {
     @State private var openedDocument: MinidumpDocument?
+    @AppStorage("zoomScale") private var zoomScale: Double = 1.0
 
     var body: some Scene {
         // Main welcome window
         WindowGroup {
-            Group {
-                if let document = openedDocument {
-                    ContentView(document: document)
-                } else {
-                    WelcomeView(openedDocument: $openedDocument)
+            GeometryReader { geo in
+                Group {
+                    if let document = openedDocument {
+                        ContentView(document: document)
+                    } else {
+                        WelcomeView(openedDocument: $openedDocument)
+                    }
                 }
+                .frame(
+                    width: geo.size.width / zoomScale,
+                    height: geo.size.height / zoomScale
+                )
+                .scaleEffect(zoomScale, anchor: .topLeading)
             }
             .helpWindowHandler()
         }
@@ -23,6 +31,25 @@ struct MiniDumpTruckApp: App {
                     NotificationCenter.default.post(name: .goToAddress, object: nil)
                 }
                 .keyboardShortcut("g", modifiers: .command)
+
+                Divider()
+
+                Button("Zoom In") {
+                    zoomScale = min(round((zoomScale + 0.1) * 10) / 10, 2.0)
+                }
+                .keyboardShortcut("=", modifiers: .command)
+                .disabled(zoomScale >= 2.0)
+
+                Button("Zoom Out") {
+                    zoomScale = max(round((zoomScale - 0.1) * 10) / 10, 0.5)
+                }
+                .keyboardShortcut("-", modifiers: .command)
+                .disabled(zoomScale <= 0.5)
+
+                Button("Actual Size") {
+                    zoomScale = 1.0
+                }
+                .keyboardShortcut("0", modifiers: .command)
             }
             CommandGroup(replacing: .importExport) {
                 Button("Export as HTML Report...") {
@@ -331,6 +358,30 @@ struct HelpView: View {
                     shortcutRow("MiniDumpTruck Help", shortcut: "\u{2318}?")
                 }
 
+                helpSection("Command-Line Tool") {
+                    Text("MiniDumpTruck includes a CLI for scripting and automation.")
+                        .font(.callout)
+
+                    cliCommandRow("analyze <path>", description: "Analyze a dump file or directory of dumps")
+                    cliCommandRow("export <path>", description: "Export as text, HTML, CSV, or JSON (-f format)")
+                    cliCommandRow("info <path>", description: "Quick triage summary of a dump file")
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Key flags:")
+                            .font(.callout)
+                            .fontWeight(.medium)
+                        cliOptionRow("-v, --verbose", description: "Include registers and memory regions")
+                        cliOptionRow("-f, --format", description: "Output format: text, html, csv, json")
+                        cliOptionRow("-s, --summary", description: "Batch summary only (directory mode)")
+                        cliOptionRow("-j, --jobs N", description: "Concurrent analyses (default: 4)")
+                        cliOptionRow("--manual", description: "Display the full CLI manual")
+                    }
+
+                    Text("Run **minidumptruck-cli --manual** for the complete reference.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+
                 helpSection("Tips") {
                     tipRow("Drag and drop a .dmp file onto the welcome screen to open it quickly.")
                     tipRow("Use Crash Analysis for automated diagnosis \u{2014} it walks the stack and attributes blame to a specific module.")
@@ -374,6 +425,32 @@ struct HelpView: View {
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
         }
         .font(.callout)
+    }
+
+    private func cliCommandRow(_ command: String, description: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "terminal")
+                .frame(width: 20)
+                .foregroundStyle(.green)
+            Text(command)
+                .font(.system(.callout, design: .monospaced))
+                .fontWeight(.medium)
+            Text("\u{2014} \(description)")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func cliOptionRow(_ flag: String, description: String) -> some View {
+        HStack(spacing: 0) {
+            Text(flag)
+                .font(.system(.caption, design: .monospaced))
+                .frame(width: 130, alignment: .leading)
+            Text(description)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.leading, 28)
     }
 
     private func tipRow(_ text: String) -> some View {

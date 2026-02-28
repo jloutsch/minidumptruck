@@ -4,6 +4,8 @@ import MiniDumpTruckCore
 struct SummaryView: View {
     let document: MinidumpDocument
     @Bindable var viewModel: DumpViewModel
+    @State private var analysis: CrashAnalysis?
+    @State private var isAnalyzing = false
 
     var body: some View {
         ScrollView {
@@ -25,6 +27,15 @@ struct SummaryView: View {
                     Divider()
                 }
 
+                // Crash diagnosis (if analysis available)
+                if isAnalyzing {
+                    ProgressView("Analyzing crash...")
+                        .frame(maxWidth: .infinity)
+                } else if let analysis = analysis {
+                    diagnosisSection(analysis)
+                    Divider()
+                }
+
                 // System info
                 if let systemInfo = document.systemInfo {
                     systemSection(systemInfo)
@@ -38,6 +49,19 @@ struct SummaryView: View {
         }
         .navigationTitle("Crash Summary")
         .textSelection(.enabled)
+        .task {
+            await runAnalysis()
+        }
+    }
+
+    private func runAnalysis() async {
+        guard let dump = document.parsedDump, dump.exception != nil else { return }
+        isAnalyzing = true
+        let result = await Task.detached(priority: .userInitiated) {
+            CrashAnalyzer(dump: dump).analyze()
+        }.value
+        analysis = result
+        isAnalyzing = false
     }
 
     private var headerSection: some View {
@@ -124,6 +148,85 @@ struct SummaryView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+    }
+
+    private func diagnosisSection(_ analysis: CrashAnalysis) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Crash Diagnosis", systemImage: "wand.and.stars")
+                    .font(.headline)
+                    .foregroundStyle(.purple)
+
+                Spacer()
+
+                Text(analysis.confidence.displayName + " Confidence")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundStyle(confidenceColor(analysis.confidence))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(confidenceColor(analysis.confidence).opacity(0.15))
+                    .clipShape(Capsule())
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 10) {
+                    // Probable cause
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Probable Cause")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        Text(analysis.crashSummary.probableCause)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    // Blamed module
+                    if let blame = analysis.blameModule {
+                        Divider()
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Blamed Module")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                            HStack(spacing: 8) {
+                                Text(blame.module.shortName)
+                                    .fontDesign(.monospaced)
+                                    .foregroundStyle(.blue)
+                                Text(blame.reasonDescription)
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    // Recommendation
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Recommendation")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        Text(analysis.crashSummary.recommendation)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    // Link to full analysis
+                    Button("View Full Crash Analysis") {
+                        viewModel.selectedSection = .analyze
+                    }
+                    .buttonStyle(.link)
+                    .font(.callout)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func confidenceColor(_ confidence: AnalysisConfidence) -> Color {
+        switch confidence {
+        case .high: return .green
+        case .medium: return .orange
+        case .low: return .gray
         }
     }
 

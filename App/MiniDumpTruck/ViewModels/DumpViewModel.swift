@@ -44,7 +44,14 @@ enum DetailSelection: Hashable {
 @MainActor
 @Observable
 class DumpViewModel {
-    var selectedSection: NavigationSection = .summary
+    var selectedSection: NavigationSection = .summary {
+        didSet {
+            if oldValue != selectedSection {
+                // Clear stale detail selection when switching sections
+                detailSelection = nil
+            }
+        }
+    }
     var detailSelection: DetailSelection?
 
     // Search/filter state

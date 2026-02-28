@@ -114,6 +114,16 @@ struct DetailInspectorView: View {
     let document: MinidumpDocument
     @Bindable var viewModel: DumpViewModel
 
+    /// Sections that have selectable items for the detail pane
+    private var sectionUsesDetailPane: Bool {
+        switch viewModel.selectedSection {
+        case .threads, .modules, .memory:
+            return true
+        default:
+            return false
+        }
+    }
+
     var body: some View {
         Group {
             if let selection = viewModel.detailSelection {
@@ -152,14 +162,48 @@ struct DetailInspectorView: View {
                     Text("Select a stream to view details")
                         .foregroundStyle(.secondary)
                 }
+            } else if sectionUsesDetailPane {
+                detailPrompt
             } else {
-                ContentUnavailableView(
-                    "No Selection",
-                    systemImage: "square.dashed",
-                    description: Text("Select an item to view details")
-                )
+                Color.clear
             }
         }
-        .frame(minWidth: 400)
+        .frame(minWidth: sectionUsesDetailPane ? 400 : 0)
+        .frame(maxWidth: sectionUsesDetailPane ? .infinity : 0)
+    }
+
+    private var detailPrompt: some View {
+        ContentUnavailableView {
+            Label(promptTitle, systemImage: promptIcon)
+        } description: {
+            Text(promptDescription)
+        }
+    }
+
+    private var promptTitle: String {
+        switch viewModel.selectedSection {
+        case .threads: return "Select a Thread"
+        case .modules: return "Select a Module"
+        case .memory: return "Select a Memory Region"
+        default: return ""
+        }
+    }
+
+    private var promptIcon: String {
+        switch viewModel.selectedSection {
+        case .threads: return "text.line.first.and.arrowtriangle.forward"
+        case .modules: return "shippingbox"
+        case .memory: return "memorychip"
+        default: return "square.dashed"
+        }
+    }
+
+    private var promptDescription: String {
+        switch viewModel.selectedSection {
+        case .threads: return "Choose a thread from the list to view its registers and stack"
+        case .modules: return "Choose a module from the list to view its details"
+        case .memory: return "Choose a memory region from the list to view its hex contents"
+        default: return ""
+        }
     }
 }

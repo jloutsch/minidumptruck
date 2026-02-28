@@ -122,6 +122,37 @@ struct TextReporterTests {
         }
     }
 
+    @Test func reportContainsBlamedModule() throws {
+        let url = Self.testFile("full-dump.dmp")
+        try #require(FileManager.default.fileExists(atPath: url.path))
+
+        let data = try Data(contentsOf: url)
+        let dump = try MinidumpParser.parse(data: data)
+        let analysis = CrashAnalyzer(dump: dump).analyze()
+
+        let report = TextReporter.generateReport(from: dump, analysis: analysis)
+
+        if analysis?.blameModule != nil {
+            #expect(report.contains("BLAMED MODULE:"))
+            #expect(report.contains("Reason:"))
+        }
+    }
+
+    @Test func reportContainsConfidence() throws {
+        let url = Self.testFile("full-dump.dmp")
+        try #require(FileManager.default.fileExists(atPath: url.path))
+
+        let data = try Data(contentsOf: url)
+        let dump = try MinidumpParser.parse(data: data)
+        let analysis = CrashAnalyzer(dump: dump).analyze()
+
+        let report = TextReporter.generateReport(from: dump, analysis: analysis)
+
+        if analysis != nil {
+            #expect(report.contains("Confidence:"))
+        }
+    }
+
     @Test func reportContainsFooter() throws {
         let url = Self.testFile("test.dmp")
         try #require(FileManager.default.fileExists(atPath: url.path))

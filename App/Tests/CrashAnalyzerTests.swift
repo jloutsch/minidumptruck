@@ -323,6 +323,28 @@ struct CrashAnalyzerTests {
         }
     }
 
+    // MARK: - Diagnosis Summary Tests
+
+    @Test func analysisProvidesDiagnosisFields() throws {
+        let url = Self.testFile("full-dump.dmp")
+        try #require(FileManager.default.fileExists(atPath: url.path))
+
+        let data = try Data(contentsOf: url)
+        let dump = try MinidumpParser.parse(data: data)
+        let analysis = try #require(CrashAnalyzer(dump: dump).analyze())
+
+        // Verify all fields the SummaryView diagnosis section displays
+        #expect(!analysis.crashSummary.probableCause.isEmpty)
+        #expect(!analysis.crashSummary.recommendation.isEmpty)
+        #expect(!analysis.crashSummary.exceptionType.isEmpty)
+        #expect([.high, .medium, .low].contains(analysis.confidence))
+
+        if let blame = analysis.blameModule {
+            #expect(!blame.module.shortName.isEmpty)
+            #expect(!blame.reasonDescription.isEmpty)
+        }
+    }
+
     // MARK: - Edge Case Tests
 
     @Test func analyzerHandlesMissingContext() throws {
