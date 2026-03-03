@@ -21,3 +21,4 @@ xcuserdata/
 .swiftpm/
 Package.resolved
 dist/MiniDumpTruck.app/
+App/dist/

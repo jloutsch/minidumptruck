@@ -339,8 +339,6 @@ public struct MemoryInfoList: Sendable, Codable {
 
         // Validate entry size is reasonable (must be at least minimum struct size)
         guard sizeOfEntry >= UInt32(Self.entrySize) else { return nil }
-        // Prevent infinite loop with zero entry size
-        guard sizeOfEntry > 0 else { return nil }
 
         var entries: [MemoryInfo] = []
         let entryCount = Int(numberOfEntries)
