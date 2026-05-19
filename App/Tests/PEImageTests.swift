@@ -164,6 +164,7 @@ struct PEExportTableEdgeTests {
         // Foo skipped entirely; an address near 0x210 must not resolve to Foo.
         #expect(table.symbol(forImageOffset: 0x1000)?.name == "Bar")
         #expect(table.symbol(forImageOffset: 0x0800) == nil)
+        #expect(table.symbol(forImageOffset: 0x0210) == nil)  // Foo was a forwarder; its RVA must not resolve
     }
 
     @Test func nilWhenImageMemoryAbsent() {
