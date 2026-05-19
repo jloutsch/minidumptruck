@@ -105,3 +105,90 @@ struct PEExportTablePE64Tests {
         #expect(table.symbol(forImageOffset: 0x0800) == nil)
     }
 }
+
+/// PE32 variant of makePE64 (32-bit optional header: data directory at optStart+96).
+func makePE32(exports: [(name: String, rva: UInt32)],
+              imageSize: Int = 0x2000) -> [UInt8] {
+    var img = [UInt8](repeating: 0, count: imageSize)
+    func w16(_ v: UInt16, _ o: Int) { img[o] = UInt8(v & 0xFF); img[o+1] = UInt8(v >> 8 & 0xFF) }
+    func w32(_ v: UInt32, _ o: Int) { for i in 0..<4 { img[o+i] = UInt8(v >> (i*8) & 0xFF) } }
+
+    let eLfanew = 0x80
+    w16(0x5A4D, 0x00)
+    w32(UInt32(eLfanew), 0x3C)
+    w32(0x00004550, eLfanew)
+    let optStart = eLfanew + 4 + 20
+    w16(0xE0, eLfanew + 4 + 16)
+    w16(0x010B, optStart)              // Magic = PE32
+    w32(16, optStart + 92)             // NumberOfRvaAndSizes
+    let dirArray = optStart + 96
+    w32(0x200, dirArray + 0)
+    w32(0x40, dirArray + 4)
+
+    let ed = 0x200
+    let funcs: UInt32 = 0x240, names: UInt32 = 0x300, ords: UInt32 = 0x380
+    let strs = 0x400
+    w32(1, ed + 16)
+    w32(UInt32(exports.count), ed + 20)
+    w32(UInt32(exports.count), ed + 24)
+    w32(funcs, ed + 28); w32(names, ed + 32); w32(ords, ed + 36)
+    var strOff = strs
+    for (i, e) in exports.enumerated() {
+        w32(e.rva, Int(funcs) + i*4)
+        w32(UInt32(strOff), Int(names) + i*4)
+        w16(UInt16(i), Int(ords) + i*2)
+        for b in Array(e.name.utf8) { img[strOff] = b; strOff += 1 }
+        img[strOff] = 0; strOff += 1
+    }
+    return img
+}
+
+@Suite("PEExportTable Edge Cases")
+struct PEExportTableEdgeTests {
+    @Test func parsesPE32() {
+        let img = makePE32(exports: [("Alpha", 0x1000), ("Beta", 0x2000)])
+        let reader = BufferMemoryReader(base: 0x400000, bytes: img)
+        let table = PEExportTable(reader: reader, imageBase: 0x400000,
+                                  imageSize: UInt32(img.count))!
+        #expect(table.symbol(forImageOffset: 0x2004)?.name == "Beta")
+        #expect(table.symbol(forImageOffset: 0x2004)?.delta == 4)
+    }
+
+    @Test func skipsForwarders() {
+        // A forwarder's function RVA points inside the export dir range
+        // (0x200 ..< 0x240). Foo is a forwarder; Bar is real code.
+        let img = makePE64(exports: [("Foo", 0x210), ("Bar", 0x1000)])
+        let reader = BufferMemoryReader(base: 0x140000000, bytes: img)
+        let table = PEExportTable(reader: reader, imageBase: 0x140000000,
+                                  imageSize: UInt32(img.count))!
+        // Foo skipped entirely; an address near 0x210 must not resolve to Foo.
+        #expect(table.symbol(forImageOffset: 0x1000)?.name == "Bar")
+        #expect(table.symbol(forImageOffset: 0x0800) == nil)
+    }
+
+    @Test func nilWhenImageMemoryAbsent() {
+        // Reader has no bytes for the image (dump didn't capture headers).
+        let reader = BufferMemoryReader(base: 0x140000000, bytes: [])
+        #expect(PEExportTable(reader: reader, imageBase: 0x140000000,
+                              imageSize: 0x2000) == nil)
+    }
+
+    @Test func nilOnBadDosSignature() {
+        var img = makePE64(exports: [("Foo", 0x1000)])
+        img[0] = 0x00; img[1] = 0x00     // clobber 'MZ'
+        let reader = BufferMemoryReader(base: 0x140000000, bytes: img)
+        #expect(PEExportTable(reader: reader, imageBase: 0x140000000,
+                              imageSize: UInt32(img.count)) == nil)
+    }
+
+    @Test func rejectsExcessiveNameCount() {
+        var img = makePE64(exports: [("Foo", 0x1000)])
+        // Overwrite NumberOfNames at export dir (0x200 + 24) with a huge value.
+        let o = 0x200 + 24
+        let huge = UInt32(PEExportTable.maxExports) + 1
+        for i in 0..<4 { img[o+i] = UInt8(huge >> (i*8) & 0xFF) }
+        let reader = BufferMemoryReader(base: 0x140000000, bytes: img)
+        #expect(PEExportTable(reader: reader, imageBase: 0x140000000,
+                              imageSize: UInt32(img.count)) == nil)
+    }
+}
