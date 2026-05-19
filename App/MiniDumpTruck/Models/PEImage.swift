@@ -118,9 +118,10 @@ public struct PEExportTable: Sendable {
             return nil
         }
         let bytes = Array(data)
-        guard let nul = bytes.firstIndex(of: 0) else {
-            return String(bytes: bytes, encoding: .utf8)
-        }
+        // Reject names without a NUL terminator within maxLen — a 4096-byte
+        // run with no terminator is malformed; spec principle is no name
+        // beats a wrong name.
+        guard let nul = bytes.firstIndex(of: 0) else { return nil }
         return String(bytes: bytes[0..<nul], encoding: .utf8)
     }
 }

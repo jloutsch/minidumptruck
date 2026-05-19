@@ -88,12 +88,21 @@ struct SymbolicatorTests {
     }
 
     @Test func maxDeltaGuardSuppressesDistantGuess() throws {
-        // Only export at rva 0x1000; query 0x1000 + (256KB + 1) past it.
+        // Only export at rva 0x1000 in an image large enough that we can query
+        // exactly at the maxFunctionSpan boundary and one byte past it.
         let base: UInt64 = 0x180000000
         let image = makePE64(exports: [("OnlyExport", 0x1000)], imageSize: 0x80000)
         let dump = try makeDumpWithModuleImage(base: base, image: image)
         let sym = Symbolicator(dump: dump)
-        let far = base + 0x1000 + 0x40000 + 1
+
+        // Inclusive boundary: delta == maxFunctionSpan (0x40000) must resolve.
+        let exact = base + 0x1000 + Symbolicator.maxFunctionSpan
+        let exactHit = sym.resolve(address: exact)
+        #expect(exactHit?.function == "OnlyExport")
+        #expect(exactHit?.offsetInFunction == Symbolicator.maxFunctionSpan)
+
+        // One byte past the boundary must NOT resolve.
+        let far = exact &+ 1
         #expect(sym.resolve(address: far) == nil)
     }
 }
