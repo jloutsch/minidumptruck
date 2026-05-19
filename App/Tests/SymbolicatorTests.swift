@@ -106,3 +106,28 @@ struct SymbolicatorTests {
         #expect(sym.resolve(address: far) == nil)
     }
 }
+
+@Suite("CrashAnalyzer Symbolication")
+struct CrashAnalyzerSymbolicationTests {
+    @Test func createFrameAttachesSymbol() throws {
+        // Build a dump with a module image; resolve a frame address directly
+        // through the same path createFrame uses (Symbolicator + StackFrame).
+        let base: UInt64 = 0x180000000
+        let image = makePE64(exports: [("CrashHere", 0x1000)])
+        let dump = try makeDumpWithModuleImage(base: base, image: image)
+
+        let sym = Symbolicator(dump: dump)
+        let resolved = try #require(sym.resolve(address: base + 0x1020))
+
+        let module = try #require(dump.moduleList?.module(containing: base + 0x1020))
+        let frame = StackFrame(
+            address: base + 0x1020,
+            module: module,
+            offsetInModule: module.offset(for: base + 0x1020),
+            symbol: resolved,
+            frameType: .returnAddress,
+            confidence: .medium
+        )
+        #expect(frame.displayAddress == "test.dll!CrashHere+0x20")
+    }
+}

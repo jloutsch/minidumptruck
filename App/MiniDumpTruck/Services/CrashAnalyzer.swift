@@ -10,10 +10,12 @@ public struct CrashAnalyzer: Sendable {
     private let maxTotalFrames = 100
 
     private let memory: DumpMemoryReader
+    private let symbolicator: Symbolicator
 
     public init(dump: ParsedMinidump) {
         self.dump = dump
         self.memory = DumpMemoryReader(dump: dump)
+        self.symbolicator = Symbolicator(dump: dump)
     }
 
     /// Analyze the crash and return results
@@ -374,11 +376,13 @@ public struct CrashAnalyzer: Sendable {
     ) -> StackFrame {
         let module = dump.moduleList?.module(containing: address)
         let offset = module?.offset(for: address)
+        let symbol = symbolicator.resolve(address: address)
 
         return StackFrame(
             address: address,
             module: module,
             offsetInModule: offset,
+            symbol: symbol,
             frameType: type,
             confidence: confidence
         )
