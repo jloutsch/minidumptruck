@@ -77,13 +77,12 @@ func makePE64(exports: [(name: String, rva: UInt32)],
 
 @Suite("PEExportTable PE32+")
 struct PEExportTablePE64Tests {
-    @Test func resolvesExactEntry() {
+    @Test func resolvesExactEntry() throws {
         let img = makePE64(exports: [("Foo", 0x1000), ("Bar", 0x1800)])
         let reader = BufferMemoryReader(base: 0x140000000, bytes: img)
-        let table = PEExportTable(reader: reader, imageBase: 0x140000000,
-                                  imageSize: UInt32(img.count))
-        let table2 = try? #require(table)
-        let hit = table2?.symbol(forImageOffset: 0x1000)
+        let table = try #require(PEExportTable(reader: reader, imageBase: 0x140000000,
+                                               imageSize: UInt32(img.count)))
+        let hit = table.symbol(forImageOffset: 0x1000)
         #expect(hit?.name == "Foo")
         #expect(hit?.delta == 0)
     }

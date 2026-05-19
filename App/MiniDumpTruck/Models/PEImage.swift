@@ -19,6 +19,19 @@ public struct PEExportTable: Sendable {
             return of ? nil : a
         }
 
+        // Absolute-address bounds helper: validates [addr, addr+need) ⊆ [imageBase, imageEnd).
+        let imageEnd: UInt64? = {
+            let (e, of) = imageBase.addingReportingOverflow(UInt64(imageSize))
+            return of ? nil : e
+        }()
+        guard let imageEnd else { return nil }
+
+        func inImage(_ addr: UInt64, _ need: Int) -> Bool {
+            guard addr >= imageBase else { return false }
+            let (top, of) = addr.addingReportingOverflow(UInt64(need))
+            return !of && top <= imageEnd
+        }
+
         // DOS header
         guard reader.readUInt16(at: imageBase) == 0x5A4D else { return nil }
         guard let eLfanew = reader.readUInt32(at: imageBase &+ 0x3C),
@@ -29,6 +42,7 @@ public struct PEExportTable: Sendable {
 
         // Optional header magic decides where the data directory starts.
         let optStart = ntBase &+ 4 &+ 20
+        guard inImage(optStart, 2) else { return nil }
         guard let magic = reader.readUInt16(at: optStart) else { return nil }
         let dirArrayOffset: UInt64
         switch magic {
@@ -38,11 +52,13 @@ public struct PEExportTable: Sendable {
         }
 
         // DataDirectory[0] = export directory (VirtualAddress, Size)
+        guard inImage(dirArrayOffset, 8) else { return nil }
         guard let exportRVA = reader.readUInt32(at: dirArrayOffset),
               let exportSize = reader.readUInt32(at: dirArrayOffset &+ 4),
               exportRVA != 0, exportSize != 0,
               let edBase = abs32(exportRVA) else { return nil }
 
+        guard inImage(edBase &+ 24, 16) else { return nil }
         guard let numberOfNames = reader.readUInt32(at: edBase &+ 24),
               let addrOfFunctions = reader.readUInt32(at: edBase &+ 28),
               let addrOfNames = reader.readUInt32(at: edBase &+ 32),
@@ -54,7 +70,6 @@ public struct PEExportTable: Sendable {
         if exEndOf { return nil }
 
         var collected: [(rva: UInt32, name: String)] = []
-        collected.reserveCapacity(Int(numberOfNames))
 
         for i in 0..<numberOfNames {
             guard let namesSlot = abs32(addrOfNames &+ i &* 4),
