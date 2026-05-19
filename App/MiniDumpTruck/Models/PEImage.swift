@@ -33,6 +33,7 @@ public struct PEExportTable: Sendable {
         }
 
         // DOS header
+        guard inImage(imageBase, 0x40) else { return nil }
         guard reader.readUInt16(at: imageBase) == 0x5A4D else { return nil }
         guard let eLfanew = reader.readUInt32(at: imageBase &+ 0x3C),
               let ntBase = abs32(eLfanew) else { return nil }
