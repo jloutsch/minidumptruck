@@ -15,16 +15,28 @@ public struct CrashAnalysis: Sendable, Codable {
     }
 }
 
+/// A resolved function symbol for an address (export-table derived in slice 1).
+public struct ResolvedSymbol: Sendable, Codable, Equatable {
+    public let function: String
+    public let offsetInFunction: UInt64
+
+    public init(function: String, offsetInFunction: UInt64) {
+        self.function = function
+        self.offsetInFunction = offsetInFunction
+    }
+}
+
 /// Single stack frame
 public struct StackFrame: Identifiable, Sendable, Codable {
     private enum CodingKeys: String, CodingKey {
-        case address, module, offsetInModule, frameType, confidence
+        case address, module, offsetInModule, symbol, frameType, confidence
     }
 
     public let id = UUID()
     public let address: UInt64
     public let module: ModuleInfo?
     public let offsetInModule: UInt64?
+    public let symbol: ResolvedSymbol?
     public let frameType: FrameType
     public let confidence: FrameConfidence
 
@@ -41,16 +53,20 @@ public struct StackFrame: Identifiable, Sendable, Codable {
     }
 
     public var displayAddress: String {
+        if let module = module, let symbol = symbol {
+            return "\(module.shortName)!\(symbol.function)+0x\(String(symbol.offsetInFunction, radix: 16))"
+        }
         if let module = module, let offset = offsetInModule {
             return "\(module.shortName)+0x\(String(offset, radix: 16))"
         }
         return String(format: "0x%016llX", address)
     }
 
-    public init(address: UInt64, module: ModuleInfo?, offsetInModule: UInt64?, frameType: FrameType, confidence: FrameConfidence) {
+    public init(address: UInt64, module: ModuleInfo?, offsetInModule: UInt64?, symbol: ResolvedSymbol? = nil, frameType: FrameType, confidence: FrameConfidence) {
         self.address = address
         self.module = module
         self.offsetInModule = offsetInModule
+        self.symbol = symbol
         self.frameType = frameType
         self.confidence = confidence
     }
