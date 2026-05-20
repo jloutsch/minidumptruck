@@ -446,3 +446,45 @@ struct CSVExporterTests {
         return ParsedMinidump(header: header, streamDirectory: streamDir, data: data)
     }
 }
+
+@Suite("Symbol Surfacing")
+struct SymbolSurfacingTests {
+    private func mockModule(name: String, base: UInt64) -> ModuleInfo {
+        var data = Data()
+        data.append(contentsOf: withUnsafeBytes(of: base.littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: UInt32(0x10000).littleEndian) { Array($0) })
+        data.append(contentsOf: [UInt8](repeating: 0, count: ModuleInfo.size - 12))
+        var m = ModuleInfo(from: data, at: 0)!
+        m.setName(name)
+        return m
+    }
+
+    @Test func jsonExportIncludesStructuredSymbol() throws {
+        let frame = StackFrame(
+            address: 0x7FF800001014,
+            module: mockModule(name: "ntdll.dll", base: 0x7FF800000000),
+            offsetInModule: 0x1014,
+            symbol: ResolvedSymbol(function: "NtClose", offsetInFunction: 0x14),
+            frameType: .returnAddress,
+            confidence: .medium
+        )
+        let json = try JSONEncoder().encode(frame)
+        let obj = try #require(
+            try JSONSerialization.jsonObject(with: json) as? [String: Any])
+        let symbol = try #require(obj["symbol"] as? [String: Any])
+        #expect(symbol["function"] as? String == "NtClose")
+        #expect(symbol["offsetInFunction"] as? Int == 0x14)
+    }
+
+    @Test func displayAddressIsTheSingleFormattingChokepoint() {
+        let frame = StackFrame(
+            address: 0x7FF800001014,
+            module: mockModule(name: "ntdll.dll", base: 0x7FF800000000),
+            offsetInModule: 0x1014,
+            symbol: ResolvedSymbol(function: "NtClose", offsetInFunction: 0x14),
+            frameType: .returnAddress,
+            confidence: .medium
+        )
+        #expect(frame.displayAddress == "ntdll.dll!NtClose+0x14")
+    }
+}

@@ -9,8 +9,13 @@ public struct CrashAnalyzer: Sendable {
     /// Maximum total frames to return from analysis
     private let maxTotalFrames = 100
 
+    private let memory: DumpMemoryReader
+    private let symbolicator: Symbolicator
+
     public init(dump: ParsedMinidump) {
         self.dump = dump
+        self.memory = DumpMemoryReader(dump: dump)
+        self.symbolicator = Symbolicator(dump: dump)
     }
 
     /// Analyze the crash and return results
@@ -371,29 +376,24 @@ public struct CrashAnalyzer: Sendable {
     ) -> StackFrame {
         let module = dump.moduleList?.module(containing: address)
         let offset = module?.offset(for: address)
+        let symbol = symbolicator.resolve(address: address)
 
         return StackFrame(
             address: address,
             module: module,
             offsetInModule: offset,
+            symbol: symbol,
             frameType: type,
             confidence: confidence
         )
     }
 
-    /// Read memory from the dump, trying Memory64List then MemoryList
+    /// Read memory from the dump (Memory64List then MemoryList fallback).
     private func readMemory(at address: UInt64, size: Int) -> Data? {
-        if let result = dump.memory64List?.readMemory(at: address, size: size, from: dump.data) {
-            return result
-        }
-        return dump.memoryList?.readMemory(at: address, size: size, from: dump.data)
+        memory.read(at: address, size: size)
     }
 
     private func readUInt64(at address: UInt64) -> UInt64? {
-        guard let data = readMemory(at: address, size: 8),
-              data.count == 8 else {
-            return nil
-        }
-        return data.readUInt64(at: 0)
+        memory.readUInt64(at: address)
     }
 }
