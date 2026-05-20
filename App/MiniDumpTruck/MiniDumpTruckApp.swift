@@ -132,7 +132,7 @@ struct WelcomeView: View {
                                 .font(.system(size: 40))
                                 .foregroundStyle(isDragging ? .blue : .secondary)
 
-                            Text("Drop a .dmp file here")
+                            Text("Drop a .dmp or .zip file here")
                                 .font(.headline)
                                 .foregroundStyle(isDragging ? .blue : .secondary)
 
@@ -321,6 +321,7 @@ struct HelpView: View {
                     Label(".dmp", systemImage: "doc")
                     Label(".mdmp", systemImage: "doc")
                     Label(".minidump", systemImage: "doc")
+                    Label(".zip (containing a .dmp)", systemImage: "doc.zipper")
                 }
 
                 helpSection("Sidebar Navigation") {
