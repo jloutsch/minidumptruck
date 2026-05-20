@@ -305,4 +305,77 @@ struct ZipArchiveRejectionTests {
             Issue.record("unexpected error: \(error)")
         }
     }
+
+    @Test func rejectsInvalidUTF8Filename() throws {
+        // Build a normal zip, then corrupt the filename bytes to invalid UTF-8.
+        var zip = SyntheticZipBuilder.build([
+            .init(name: "ok.dmp", uncompressed: Data("hi".utf8), method: .store)
+        ])
+        // Central directory record: filename starts at CD+46.
+        let cdSig: [UInt8] = [0x50, 0x4B, 0x01, 0x02]
+        guard let range = zip.range(of: Data(cdSig)) else {
+            Issue.record("CD sig not found"); return
+        }
+        let nameStart = range.lowerBound + 46
+        // Replace first filename byte with an isolated UTF-8 continuation byte (0x80) — invalid as a leading byte.
+        zip[nameStart] = 0x80
+        do {
+            _ = try ZipArchive(data: zip)
+            Issue.record("expected .corrupted for invalid UTF-8 filename")
+        } catch ZipError.corrupted {
+            // expected
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test func rejectsWinZipAESEncryption() throws {
+        // Build a normal zip, then set the WinZip AES bit (bit 6 = 0x0040) without bit 0.
+        var zip = SyntheticZipBuilder.build([
+            .init(name: "aes.dmp", uncompressed: Data("x".utf8), method: .store)
+        ])
+        let cdSig: [UInt8] = [0x50, 0x4B, 0x01, 0x02]
+        guard let range = zip.range(of: Data(cdSig)) else {
+            Issue.record("CD sig not found"); return
+        }
+        let gpFlagsOffset = range.lowerBound + 8
+        zip[gpFlagsOffset] = 0x40       // bit 6 set, bit 0 clear
+        zip[gpFlagsOffset + 1] = 0x00
+        do {
+            _ = try ZipArchive(data: zip)
+            Issue.record("expected .encrypted for WinZip AES")
+        } catch ZipError.encrypted {
+            // expected
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test func rejectsCursorOverflowInCDIteration() throws {
+        // Construct an EOCD claiming 2 records but with the first record's
+        // extraLen+commentLen so large that the cursor would advance past
+        // the file. The overflow check + cdEnd64 guard together must reject.
+        var zip = SyntheticZipBuilder.build([
+            .init(name: "a.dmp", uncompressed: Data("a".utf8), method: .store),
+            .init(name: "b.dmp", uncompressed: Data("b".utf8), method: .store)
+        ])
+        // Find the first CD record and set extraLen = commentLen = 0xFFFF so
+        // cursor advances by 131k after this record — past cdEnd64.
+        let cdSig: [UInt8] = [0x50, 0x4B, 0x01, 0x02]
+        guard let range = zip.range(of: Data(cdSig)) else {
+            Issue.record("CD sig not found"); return
+        }
+        let extraLenOff = range.lowerBound + 30   // CD record: extraLen at +30
+        let commentLenOff = range.lowerBound + 32 // CD record: commentLen at +32
+        zip[extraLenOff] = 0xFF; zip[extraLenOff + 1] = 0xFF
+        zip[commentLenOff] = 0xFF; zip[commentLenOff + 1] = 0xFF
+        do {
+            _ = try ZipArchive(data: zip)
+            Issue.record("expected .corrupted for cursor overflow")
+        } catch ZipError.corrupted {
+            // expected — either the explicit overflow guard or the cursor<cdEnd64 guard catches it
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
 }

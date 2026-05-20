@@ -108,7 +108,7 @@ public struct ZipArchive: Sendable {
                   let localOffset = data.readUInt32(at: cursor + 42) else {
                 throw ZipError.corrupted(reason: "central directory record truncated at offset \(cursor)")
             }
-            if (gpFlags & 0x0001) != 0 { throw ZipError.encrypted }
+            if (gpFlags & 0x0041) != 0 { throw ZipError.encrypted }
             guard let method = CompressionMethod(rawValue: methodRaw) else {
                 throw ZipError.unsupportedCompression(method: methodRaw)
             }
@@ -121,7 +121,9 @@ public struct ZipArchive: Sendable {
                 throw ZipError.corrupted(reason: "filename runs past end of file")
             }
             let nameData = data[nameStart..<nameEnd]
-            let name = String(data: nameData, encoding: .utf8) ?? ""
+            guard let name = String(data: nameData, encoding: .utf8) else {
+                throw ZipError.corrupted(reason: "non-UTF-8 filename")
+            }
 
             entries.append(ZipEntry(
                 id: UUID(),
@@ -132,7 +134,12 @@ public struct ZipArchive: Sendable {
                 localHeaderOffset: localOffset,
                 generalPurposeFlags: gpFlags
             ))
-            cursor = nameEnd + Int(extraLen) + Int(commentLen)
+            let (afterExtra, ovr1) = nameEnd.addingReportingOverflow(Int(extraLen))
+            let (afterComment, ovr2) = afterExtra.addingReportingOverflow(Int(commentLen))
+            guard !ovr1, !ovr2 else {
+                throw ZipError.corrupted(reason: "cursor advance overflow in central directory record at offset \(cursor)")
+            }
+            cursor = afterComment
         }
         self.entries = entries
     }
