@@ -93,6 +93,10 @@ struct WelcomeView: View {
     @State private var isLoading = false
     @State private var loadingFileName: String = ""
     @State private var loadingFileSize: Int = 0
+    @State private var pickerArchive: ZipArchive?
+    @State private var pickerEntries: [ZipEntry] = []
+    @State private var pickerZipName: String = ""
+    @State private var isPickerPresented: Bool = false
 
     var body: some View {
         ZStack {
@@ -195,6 +199,23 @@ struct WelcomeView: View {
                 .transition(.opacity)
             }
         }
+        .sheet(isPresented: $isPickerPresented) {
+            if let archive = pickerArchive {
+                ZipPickerView(
+                    zipName: pickerZipName,
+                    entries: pickerEntries,
+                    onConfirm: { picks in
+                        isPickerPresented = false
+                        extractAndOpen(picks: picks, from: archive, zipName: pickerZipName)
+                    },
+                    onCancel: {
+                        isPickerPresented = false
+                        pickerArchive = nil
+                        pickerEntries = []
+                    }
+                )
+            }
+        }
         .frame(minWidth: 500, minHeight: 400)
         .background(Color(nsColor: .windowBackgroundColor))
         .animation(.easeInOut(duration: 0.2), value: isLoading)
@@ -228,6 +249,17 @@ struct WelcomeView: View {
         return true
     }
 
+    private func extractAndOpen(picks: [ZipEntry], from archive: ZipArchive, zipName: String) {
+        loadingFileName = zipName
+        isLoading = true
+        Task.detached(priority: .userInitiated) {
+            let outcome = await InputPipeline.extractSelected(picks, from: archive, sourceName: zipName)
+            await MainActor.run {
+                handle(outcome: outcome)
+            }
+        }
+    }
+
     private func ingest(url: URL) {
         loadingFileName = url.lastPathComponent
         loadingFileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
@@ -251,13 +283,11 @@ struct WelcomeView: View {
             for url in urls {
                 NSWorkspace.shared.open(url)
             }
-        case .needsPick:
-            // Multi-dump picker added in Task 7. Until then, surface a placeholder.
-            let alert = NSAlert()
-            alert.messageText = "Multiple Dumps Found"
-            alert.informativeText = "This zip contains more than one minidump. Multi-dump picker is coming in the next change; for now, please extract the .dmp you want and open it directly."
-            alert.alertStyle = .informational
-            alert.runModal()
+        case .needsPick(let archive, let entries, let zipName):
+            pickerArchive = archive
+            pickerEntries = entries
+            pickerZipName = zipName
+            isPickerPresented = true
         case .failed(let err):
             let alert = NSAlert()
             alert.messageText = "Cannot Open File"
