@@ -1,5 +1,20 @@
 import SwiftUI
+import AppKit
 import MiniDumpTruckCore
+
+/// Document controller that suppresses Recent Documents entries for files
+/// inside our zip-extraction cache. Otherwise, after TempStore.cleanupAged
+/// removes a tempdir 24h later, File > Open Recent would point to deleted
+/// files and surface a generic "file not found" error.
+private final class FilteringDocumentController: NSDocumentController {
+    override func noteNewRecentDocumentURL(_ url: URL) {
+        let cacheRoot = TempStore.root().path
+        if url.path.hasPrefix(cacheRoot) {
+            return  // do not record tempfiles in Recent Documents
+        }
+        super.noteNewRecentDocumentURL(url)
+    }
+}
 
 @main
 struct MiniDumpTruckApp: App {
@@ -7,6 +22,11 @@ struct MiniDumpTruckApp: App {
     @AppStorage("zoomScale") private var zoomScale: Double = 1.0
 
     init() {
+        // Install our custom document controller as the shared singleton.
+        // NSDocumentController.init() auto-registers itself; the side effect
+        // installs the filtering subclass for all subsequent DocumentGroup opens.
+        _ = FilteringDocumentController()
+
         // Best-effort cleanup of zip-extracted tempfiles older than 24 hours.
         // Fired off as a detached task; never blocks app launch, never throws.
         Task.detached(priority: .background) {
@@ -248,15 +268,27 @@ struct WelcomeView: View {
     }
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first else { return false }
+        guard !providers.isEmpty else { return false }
 
-        provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, _ in
-            guard let data = item as? Data,
-                  let url = URL(dataRepresentation: data, relativeTo: nil) else {
-                return
-            }
-            DispatchQueue.main.async {
-                ingest(url: url)
+        for provider in providers {
+            provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, error in
+                if let error = error {
+                    DispatchQueue.main.async {
+                        let alert = NSAlert()
+                        alert.messageText = "Could Not Read Dropped File"
+                        alert.informativeText = error.localizedDescription
+                        alert.alertStyle = .warning
+                        alert.runModal()
+                    }
+                    return
+                }
+                guard let data = item as? Data,
+                      let url = URL(dataRepresentation: data, relativeTo: nil) else {
+                    return
+                }
+                DispatchQueue.main.async {
+                    ingest(url: url)
+                }
             }
         }
 
@@ -264,6 +296,7 @@ struct WelcomeView: View {
     }
 
     private func extractAndOpen(picks: [ZipEntry], from archive: ZipArchive, zipName: String) {
+        guard !isLoading else { return }
         loadingFileName = zipName
         isLoading = true
         Task.detached(priority: .userInitiated) {
@@ -275,6 +308,7 @@ struct WelcomeView: View {
     }
 
     private func ingest(url: URL) {
+        guard !isLoading else { return }
         loadingFileName = url.lastPathComponent
         loadingFileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
         isLoading = true
@@ -294,8 +328,19 @@ struct WelcomeView: View {
         case .openDocument(let parsed, let size):
             openedDocument = MinidumpDocument(parsedDump: parsed, fileSize: size)
         case .openWindows(let urls):
+            var failed: [URL] = []
             for url in urls {
-                NSWorkspace.shared.open(url)
+                if !NSWorkspace.shared.open(url) {
+                    failed.append(url)
+                }
+            }
+            if !failed.isEmpty {
+                let alert = NSAlert()
+                alert.messageText = "Could Not Open All Dumps"
+                let names = failed.map(\.lastPathComponent).joined(separator: ", ")
+                alert.informativeText = "Failed to open: \(names)"
+                alert.alertStyle = .warning
+                alert.runModal()
             }
         case .showPicker(let archive, let entries, let zipName):
             pickerArchive = archive
