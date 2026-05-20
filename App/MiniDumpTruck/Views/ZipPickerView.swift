@@ -45,7 +45,7 @@ struct ZipPickerView: View {
                 Button("Cancel", role: .cancel) { onCancel() }
                 Spacer()
                 Button(selected.isEmpty ? "Open Selected" : "Open \(selected.count) Selected") {
-                    let picks = entries.filter { selected.contains($0.id) }
+                    let picks = ZipEntrySelection.selected(from: entries, ids: selected)
                     onConfirm(picks)
                 }
                 .buttonStyle(.borderedProminent)

@@ -290,22 +290,22 @@ struct WelcomeView: View {
     @MainActor
     private func handle(outcome: InputPipeline.Outcome) {
         isLoading = false
-        switch outcome {
-        case .openInPlace(let parsed, let size):
+        switch WelcomeRouter.route(outcome) {
+        case .openDocument(let parsed, let size):
             openedDocument = MinidumpDocument(parsedDump: parsed, fileSize: size)
-        case .openInWindows(let urls):
+        case .openWindows(let urls):
             for url in urls {
                 NSWorkspace.shared.open(url)
             }
-        case .needsPick(let archive, let entries, let zipName):
+        case .showPicker(let archive, let entries, let zipName):
             pickerArchive = archive
             pickerEntries = entries
             pickerZipName = zipName
             isPickerPresented = true
-        case .failed(let err):
+        case .showAlert(let title, let message):
             let alert = NSAlert()
-            alert.messageText = "Cannot Open File"
-            alert.informativeText = err.errorDescription ?? "Unknown error."
+            alert.messageText = title
+            alert.informativeText = message
             alert.alertStyle = .warning
             alert.runModal()
         }
