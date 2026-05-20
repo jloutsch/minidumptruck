@@ -6,6 +6,14 @@ struct MiniDumpTruckApp: App {
     @State private var openedDocument: MinidumpDocument?
     @AppStorage("zoomScale") private var zoomScale: Double = 1.0
 
+    init() {
+        // Best-effort cleanup of zip-extracted tempfiles older than 24 hours.
+        // Fired off as a detached task; never blocks app launch, never throws.
+        Task.detached(priority: .background) {
+            await TempStore.cleanupAged(olderThan: 24 * 3600)
+        }
+    }
+
     var body: some Scene {
         // Main welcome window
         WindowGroup {
