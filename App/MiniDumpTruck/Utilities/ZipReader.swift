@@ -29,7 +29,12 @@ public struct ZipEntry: Sendable, Identifiable {
 public struct ZipArchive: Sendable {
     /// DoS bound: maximum entries parsed from one archive.
     public static let maxEntries: UInt64 = 100_000
-    /// DoS bound: maximum uncompressed size of one entry (ZIP non-64 hard limit).
+    /// DoS bound: maximum uncompressed size of one entry. This is the ZIP
+    /// non-64 structural hard limit (4 GB - 1), NOT a practical memory
+    /// budget — `extract` pre-allocates this much for inflate. The current
+    /// interactive-desktop use opens one dump at a time, so the cap is
+    /// acceptable. Future batch-processing callers should add a tighter
+    /// practical cap (e.g., 256 MB).
     public static let maxEntrySize: UInt32 = 0xFFFFFFFF
     /// DoS bound: maximum central-directory size.
     public static let maxCentralDirectorySize: UInt32 = 32 * 1024 * 1024
@@ -87,6 +92,9 @@ public struct ZipArchive: Sendable {
         var cursor = Int(cdOffset)
         let cdRecordSig: UInt32 = 0x02014B50
         for _ in 0..<Int(totalRecords) {
+            guard cursor < Int(cdEnd64) else {
+                throw ZipError.corrupted(reason: "cursor escaped central directory at offset \(cursor)")
+            }
             guard data.readUInt32(at: cursor) == cdRecordSig else {
                 throw ZipError.corrupted(reason: "bad central directory record signature at offset \(cursor)")
             }
