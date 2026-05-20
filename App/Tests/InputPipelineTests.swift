@@ -119,8 +119,13 @@ struct InputPipelineIngestTests {
         var zip = SyntheticZipBuilder.build([
             .init(name: "secret.dmp", uncompressed: Data("x".utf8), method: .store)
         ])
+        // ZipArchive currently reads the encrypted flag from the CD record,
+        // but mirror real encrypted ZIPs by also setting the LFH GP flag,
+        // so this test stays accurate if the check ever moves.
         let cdSig: [UInt8] = [0x50, 0x4B, 0x01, 0x02]
         if let r = zip.range(of: Data(cdSig)) { zip[r.lowerBound + 8] = 0x01 }
+        let lfhSig: [UInt8] = [0x50, 0x4B, 0x03, 0x04]
+        if let r = zip.range(of: Data(lfhSig)) { zip[r.lowerBound + 6] = 0x01 }
         let url = try writeTempFile(name: "encrypted-zip", body: zip)
         defer { try? FileManager.default.removeItem(at: url) }
         let outcome = await InputPipeline.ingest(url: url)
@@ -128,6 +133,22 @@ struct InputPipelineIngestTests {
             // expected
         } else {
             Issue.record("expected .failed(.zipParseFailed(.encrypted)), got \(outcome)")
+        }
+    }
+
+    @Test func zipWithOneDumpDeflatedOpensInPlace() async throws {
+        let dump = makeMinimalMinidumpBytes()
+        let zip = SyntheticZipBuilder.build([
+            .init(name: "crash.dmp", uncompressed: dump, method: .deflate)
+        ])
+        let url = try writeTempFile(name: "one-dump-deflate", body: zip)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let outcome = await InputPipeline.ingest(url: url)
+        switch outcome {
+        case .openInPlace(_, let size):
+            #expect(size == dump.count)
+        default:
+            Issue.record("expected .openInPlace, got \(outcome)")
         }
     }
 }
@@ -161,6 +182,20 @@ struct InputPipelineExtractTests {
         }
     }
 
+    @Test func extractSelectedWithEmptyEntriesReturnsEmptyWindows() async throws {
+        let zipBytes = SyntheticZipBuilder.build([
+            .init(name: "a.dmp", uncompressed: makeMinimalMinidumpBytes(), method: .store)
+        ])
+        let archive = try ZipArchive(data: zipBytes)
+        let outcome = await InputPipeline.extractSelected([], from: archive, sourceName: "empty.zip")
+        switch outcome {
+        case .openInWindows(let urls):
+            #expect(urls.isEmpty)
+        default:
+            Issue.record("expected .openInWindows([]), got \(outcome)")
+        }
+    }
+
     @Test func sanitizesEntryFilenamesAgainstPathTraversal() async throws {
         let dump = makeMinimalMinidumpBytes()
         let zipBytes = SyntheticZipBuilder.build([
@@ -179,6 +214,7 @@ struct InputPipelineExtractTests {
             let url = urls[0]
             #expect(url.lastPathComponent == "escape.dmp")
             #expect(url.deletingLastPathComponent().lastPathComponent.hasPrefix("zip-"))
+            #expect(url.path.hasPrefix(TempStore.root().path), "extracted file must be under TempStore root")
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         default:
             Issue.record("expected .openInWindows, got \(outcome)")
