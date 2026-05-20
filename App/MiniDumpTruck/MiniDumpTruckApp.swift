@@ -71,7 +71,7 @@ struct MiniDumpTruckApp: App {
                 Divider()
 
                 Link("Visit GitHub Repository",
-                     destination: URL(string: "https://github.com/jbalthis/minidumptruck")!)
+                     destination: URL(string: "https://github.com/jloutsch/minidumptruck")!)
             }
         }
 
