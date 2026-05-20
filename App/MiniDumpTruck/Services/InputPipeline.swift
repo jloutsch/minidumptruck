@@ -45,29 +45,40 @@ public enum InputPipeline {
     public static func extractSelected(_ entries: [ZipEntry],
                                        from archive: ZipArchive,
                                        sourceName: String) async -> Outcome {
+        let dir: URL
         do {
-            let dir = try TempStore.makeDir(sourceName: sourceName)
-            var urls: [URL] = []
-            urls.reserveCapacity(entries.count)
-            for entry in entries {
-                let sanitizedName = (entry.name as NSString).lastPathComponent
-                guard !sanitizedName.isEmpty else {
-                    return .failed(.zipExtractFailed(entry: entry.name,
-                                                     underlying: ZipError.corrupted(reason: "empty filename")))
-                }
-                let outURL = dir.appendingPathComponent(sanitizedName)
-                do {
-                    let body = try archive.extract(entry)
-                    try body.write(to: outURL)
-                    urls.append(outURL)
-                } catch {
-                    return .failed(.zipExtractFailed(entry: entry.name, underlying: error))
-                }
-            }
-            return .openInWindows(urls)
+            dir = try TempStore.makeDir(sourceName: sourceName)
         } catch {
             return .failed(.zipExtractFailed(entry: "(tempdir)", underlying: error))
         }
+        var urls: [URL] = []
+        urls.reserveCapacity(entries.count)
+        for entry in entries {
+            let sanitizedName = (entry.name as NSString).lastPathComponent
+            guard !sanitizedName.isEmpty else {
+                try? FileManager.default.removeItem(at: dir)
+                return .failed(.zipExtractFailed(entry: entry.name,
+                                                 underlying: ZipError.corrupted(reason: "empty filename")))
+            }
+            // Reject literal ".." and "." after sanitization — these resolve
+            // to the tempdir parent or self and would write outside the
+            // intended directory (or fail in a confusing way).
+            guard sanitizedName != "..", sanitizedName != "." else {
+                try? FileManager.default.removeItem(at: dir)
+                return .failed(.zipExtractFailed(entry: entry.name,
+                                                 underlying: ZipError.corrupted(reason: "invalid filename")))
+            }
+            let outURL = dir.appendingPathComponent(sanitizedName)
+            do {
+                let body = try archive.extract(entry)
+                try body.write(to: outURL)
+                urls.append(outURL)
+            } catch {
+                try? FileManager.default.removeItem(at: dir)
+                return .failed(.zipExtractFailed(entry: entry.name, underlying: error))
+            }
+        }
+        return .openInWindows(urls)
     }
 
     // MARK: - Private
