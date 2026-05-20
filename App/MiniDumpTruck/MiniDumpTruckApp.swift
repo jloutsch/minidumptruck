@@ -205,80 +205,65 @@ struct WelcomeView: View {
         panel.allowedContentTypes = [.data]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.message = "Select a Windows minidump file (.dmp)"
+        panel.message = "Select a Windows minidump file (.dmp) or a zip containing one"
 
         if panel.runModal() == .OK, let url = panel.url {
-            let ext = url.pathExtension.lowercased()
-            guard ext == "dmp" || ext == "mdmp" || ext == "minidump" else {
-                let alert = NSAlert()
-                alert.messageText = "Unsupported File Type"
-                alert.informativeText = "Please select a Windows minidump file (.dmp, .mdmp)."
-                alert.alertStyle = .warning
-                alert.runModal()
-                return
-            }
-            loadDocument(from: url)
+            ingest(url: url)
         }
     }
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
 
-        provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, error in
+        provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, _ in
             guard let data = item as? Data,
                   let url = URL(dataRepresentation: data, relativeTo: nil) else {
                 return
             }
-
-            // Validate file extension before loading
-            let ext = url.pathExtension.lowercased()
-            guard ext == "dmp" || ext == "mdmp" || ext == "minidump" else {
-                DispatchQueue.main.async {
-                    let alert = NSAlert()
-                    alert.messageText = "Unsupported File Type"
-                    alert.informativeText = "Please drop a Windows minidump file (.dmp, .mdmp)."
-                    alert.alertStyle = .warning
-                    alert.runModal()
-                }
-                return
-            }
-
             DispatchQueue.main.async {
-                loadDocument(from: url)
+                ingest(url: url)
             }
         }
 
         return true
     }
 
-    private func loadDocument(from url: URL) {
-        // Show loading state
+    private func ingest(url: URL) {
         loadingFileName = url.lastPathComponent
         loadingFileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
         isLoading = true
 
-        // Parse in background to keep UI responsive
         Task.detached(priority: .userInitiated) {
-            do {
-                let data = try Data(contentsOf: url, options: .mappedIfSafe)
-                let parsedDump = try MinidumpParser.parse(data: data)
-                let document = MinidumpDocument(parsedDump: parsedDump, fileSize: data.count)
-
-                await MainActor.run {
-                    isLoading = false
-                    openedDocument = document
-                }
-            } catch {
-                await MainActor.run {
-                    isLoading = false
-
-                    let alert = NSAlert()
-                    alert.messageText = "Failed to Open File"
-                    alert.informativeText = error.localizedDescription
-                    alert.alertStyle = .warning
-                    alert.runModal()
-                }
+            let outcome = await InputPipeline.ingest(url: url)
+            await MainActor.run {
+                handle(outcome: outcome)
             }
+        }
+    }
+
+    @MainActor
+    private func handle(outcome: InputPipeline.Outcome) {
+        isLoading = false
+        switch outcome {
+        case .openInPlace(let parsed, let size):
+            openedDocument = MinidumpDocument(parsedDump: parsed, fileSize: size)
+        case .openInWindows(let urls):
+            for url in urls {
+                NSWorkspace.shared.open(url)
+            }
+        case .needsPick:
+            // Multi-dump picker added in Task 7. Until then, surface a placeholder.
+            let alert = NSAlert()
+            alert.messageText = "Multiple Dumps Found"
+            alert.informativeText = "This zip contains more than one minidump. Multi-dump picker is coming in the next change; for now, please extract the .dmp you want and open it directly."
+            alert.alertStyle = .informational
+            alert.runModal()
+        case .failed(let err):
+            let alert = NSAlert()
+            alert.messageText = "Cannot Open File"
+            alert.informativeText = err.errorDescription ?? "Unknown error."
+            alert.alertStyle = .warning
+            alert.runModal()
         }
     }
 }
