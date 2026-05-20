@@ -43,6 +43,16 @@ struct OpenErrorTests {
         #expect(msg.contains("crash.dmp"))
         #expect(msg.contains("disk full"))
     }
+
+    @Test func corruptedMinidumpTruncatesLongUnderlyingDescription() throws {
+        struct Loud: LocalizedError {
+            var errorDescription: String? { String(repeating: "X", count: 10_000) }
+        }
+        let err = OpenError.corruptedMinidump(underlying: Loud())
+        let msg = try #require(err.errorDescription)
+        #expect(msg.count < 500)  // bounded, not 10_000+ chars
+        #expect(msg.contains("..."))  // truncation marker
+    }
 }
 
 @Suite("ZipError")

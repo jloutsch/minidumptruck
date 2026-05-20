@@ -71,7 +71,7 @@ public enum InputPipeline {
             let outURL = dir.appendingPathComponent(sanitizedName)
             do {
                 let body = try archive.extract(entry)
-                try body.write(to: outURL)
+                try body.write(to: outURL, options: .atomic)
                 urls.append(outURL)
             } catch {
                 try? FileManager.default.removeItem(at: dir)
@@ -102,7 +102,7 @@ public enum InputPipeline {
         do {
             zipData = try Data(contentsOf: url, options: .mappedIfSafe)
         } catch {
-            return .failed(.corruptedMinidump(underlying: error))
+            return .failed(.zipParseFailed(.corrupted(reason: error.localizedDescription)))
         }
         let archive: ZipArchive
         do {

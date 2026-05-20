@@ -5,6 +5,9 @@ import Foundation
 /// reclaim caches under disk pressure; `cleanupAged` provides explicit
 /// best-effort housekeeping.
 public enum TempStore {
+    /// Test-injectable clock. Default: real time.
+    public static var now: () -> Date = Date.init
+
     /// Root: ~/Library/Caches/MiniDumpTruck/
     public static func root() -> URL {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -20,21 +23,21 @@ public enum TempStore {
         return dir
     }
 
-    /// Delete any `zip-*` subdirectory of the cache root whose modification
+    /// Delete any `zip-*` subdirectory of the cache root whose creation
     /// date is older than `olderThan` seconds. Best-effort: never throws.
     public static func cleanupAged(olderThan: TimeInterval) async {
         let fm = FileManager.default
         let root = root()
         guard let entries = try? fm.contentsOfDirectory(at: root,
-                                                        includingPropertiesForKeys: [.contentModificationDateKey],
+                                                        includingPropertiesForKeys: [.creationDateKey],
                                                         options: [.skipsHiddenFiles]) else {
             return
         }
-        let cutoff = Date().addingTimeInterval(-olderThan)
+        let cutoff = now().addingTimeInterval(-olderThan)
         for entry in entries {
             guard entry.lastPathComponent.hasPrefix("zip-") else { continue }
-            let values = try? entry.resourceValues(forKeys: [.contentModificationDateKey])
-            guard let mtime = values?.contentModificationDate, mtime < cutoff else { continue }
+            let values = try? entry.resourceValues(forKeys: [.creationDateKey])
+            guard let ctime = values?.creationDate, ctime < cutoff else { continue }
             try? fm.removeItem(at: entry)
         }
     }

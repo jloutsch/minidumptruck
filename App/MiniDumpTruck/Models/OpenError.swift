@@ -49,15 +49,29 @@ public enum OpenError: Error, LocalizedError, Sendable {
             let hex = bytes.prefix(4).map { String(format: "%02X", $0) }.joined(separator: " ")
             return "This file does not look like a Windows minidump or a zip containing one. (First bytes: \(hex.isEmpty ? "<empty>" : hex))"
         case .corruptedMinidump(let underlying):
-            let detail = underlying.localizedDescription
+            let detail = Self.sanitizedDetail(underlying)
             return "This minidump appears to be truncated or corrupt: \(detail)."
         case .zipParseFailed(let zipError):
             return zipError.errorDescription ?? "ZIP parsing failed."
         case .zipNoMinidumps(let zipName):
             return "\(zipName) does not contain any .dmp / .mdmp / .minidump files."
         case .zipExtractFailed(let entry, let underlying):
-            let detail = underlying.localizedDescription
+            let detail = Self.sanitizedDetail(underlying)
             return "Could not extract \(entry) from the zip: \(detail)."
         }
+    }
+
+    /// Sanitize an underlying error's description before embedding in
+    /// user-facing alert text. Truncates very long messages and strips
+    /// control characters to prevent a malformed dump from injecting
+    /// arbitrary content into a dialog.
+    private static func sanitizedDetail(_ underlying: Error) -> String {
+        let raw = underlying.localizedDescription
+        let stripped = raw.unicodeScalars.filter { !$0.properties.isDefaultIgnorableCodePoint && (!CharacterSet.controlCharacters.contains($0) || $0 == "\u{0020}") }
+        let cleaned = String(String.UnicodeScalarView(stripped))
+        if cleaned.count > 200 {
+            return String(cleaned.prefix(200)) + "..."
+        }
+        return cleaned
     }
 }
