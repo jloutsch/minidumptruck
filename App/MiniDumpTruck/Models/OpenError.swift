@@ -4,7 +4,7 @@ import Foundation
 /// `OpenError.zipParseFailed`. (The `CompressionMethod` enum lives in
 /// `ZipReader.swift` alongside the parser; `ZipError.unsupportedCompression`
 /// carries a raw `UInt16` so this type does not need that import.)
-public enum ZipError: Error, LocalizedError, Equatable {
+public enum ZipError: Error, LocalizedError, Equatable, Sendable {
     case notAZip
     case corrupted(reason: String)
     case encrypted
@@ -36,7 +36,7 @@ public enum ZipError: Error, LocalizedError, Equatable {
 /// User-facing errors emitted by the input pipeline. `localizedDescription`
 /// returns human-readable text suitable for an alert dialog; the raw Swift
 /// type names are never shown to the user.
-public enum OpenError: Error, LocalizedError {
+public enum OpenError: Error, LocalizedError, Sendable {
     case notAMinidump(firstBytes: [UInt8])
     case corruptedMinidump(underlying: Error)
     case zipParseFailed(ZipError)
@@ -47,7 +47,7 @@ public enum OpenError: Error, LocalizedError {
         switch self {
         case .notAMinidump(let bytes):
             let hex = bytes.prefix(4).map { String(format: "%02X", $0) }.joined(separator: " ")
-            return "This file does not look like a Windows minidump or a zip containing one. (First bytes: \(hex.isEmpty ? "<empty>" : hex).)"
+            return "This file does not look like a Windows minidump or a zip containing one. (First bytes: \(hex.isEmpty ? "<empty>" : hex))"
         case .corruptedMinidump(let underlying):
             let detail = underlying.localizedDescription
             return "This minidump appears to be truncated or corrupt: \(detail)."
