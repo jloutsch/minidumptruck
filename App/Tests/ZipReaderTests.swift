@@ -164,3 +164,145 @@ struct ZipArchiveHappyTests {
         #expect(try archive.extract(archive.entries[0]) == Data())
     }
 }
+
+@Suite("ZipArchive rejections")
+struct ZipArchiveRejectionTests {
+    @Test func rejectsBytesWithoutEocd() {
+        let garbage = Data(repeating: 0xAA, count: 100)
+        do {
+            _ = try ZipArchive(data: garbage)
+            Issue.record("expected .notAZip")
+        } catch ZipError.notAZip {
+            // expected
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test func rejectsTooSmall() {
+        do {
+            _ = try ZipArchive(data: Data([0x01, 0x02, 0x03]))
+            Issue.record("expected .notAZip")
+        } catch ZipError.notAZip {
+            // expected
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test func rejectsEncryptedEntry() throws {
+        var zip = SyntheticZipBuilder.build([
+            .init(name: "encrypted.dmp", uncompressed: Data("x".utf8), method: .store)
+        ])
+        // Find the central directory record signature (PK\x01\x02) and set
+        // general-purpose bit flag (offset +8 from sig) bit 0 = encrypted.
+        let cdSig: [UInt8] = [0x50, 0x4B, 0x01, 0x02]
+        guard let range = zip.range(of: Data(cdSig)) else {
+            Issue.record("CD signature not found"); return
+        }
+        let gpFlagsOffset = range.lowerBound + 8
+        zip[gpFlagsOffset] = 0x01
+        do {
+            _ = try ZipArchive(data: zip)
+            Issue.record("expected .encrypted")
+        } catch ZipError.encrypted {
+            // expected
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test func rejectsUnsupportedCompression() throws {
+        var zip = SyntheticZipBuilder.build([
+            .init(name: "weird.dmp", uncompressed: Data("x".utf8), method: .store)
+        ])
+        // Central directory record: compression method at offset +10 from CD sig.
+        let cdSig: [UInt8] = [0x50, 0x4B, 0x01, 0x02]
+        guard let range = zip.range(of: Data(cdSig)) else {
+            Issue.record("CD signature not found"); return
+        }
+        let methodOffset = range.lowerBound + 10
+        zip[methodOffset] = 0x0C       // 12 = bzip2
+        zip[methodOffset + 1] = 0x00
+        do {
+            _ = try ZipArchive(data: zip)
+            Issue.record("expected .unsupportedCompression")
+        } catch ZipError.unsupportedCompression(let method) {
+            #expect(method == 12)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test func rejectsZip64Locator() throws {
+        // Build a minimal valid empty ZIP (no entries) and inject a ZIP64
+        // EOCD locator immediately before the EOCD signature.
+        var zip = SyntheticZipBuilder.build([])
+        // EOCD is at end (22 bytes). Insert 20 bytes of ZIP64 locator before it.
+        let eocdSig: [UInt8] = [0x50, 0x4B, 0x05, 0x06]
+        guard let range = zip.range(of: Data(eocdSig)) else {
+            Issue.record("EOCD not found"); return
+        }
+        var z64Locator = Data()
+        z64Locator.appendUInt32LE(0x07064B50)  // ZIP64 locator signature
+        z64Locator.append(Data(repeating: 0, count: 16))  // padding
+        zip.insert(contentsOf: z64Locator, at: range.lowerBound)
+        do {
+            _ = try ZipArchive(data: zip)
+            Issue.record("expected .zip64Unsupported")
+        } catch ZipError.zip64Unsupported {
+            // expected
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test func rejectsTooManyEntries() {
+        // Bound documentation: maxEntries = 100_000. The runtime path that
+        // fires `tooManyEntries` requires totalRecords > 100_000 in EOCD,
+        // which exceeds UInt16 (65535) and therefore can only be expressed
+        // via ZIP64. ZIP64 is already rejected upstream, so this guard is
+        // currently unreachable from well-formed non-ZIP64 input. The
+        // constant exists for the parser's defensive check; documented here.
+        #expect(ZipArchive.maxEntries == 100_000)
+    }
+
+    @Test func rejectsCorruptCentralDirectoryRecord() throws {
+        var zip = SyntheticZipBuilder.build([
+            .init(name: "ok.dmp", uncompressed: Data("hi".utf8), method: .store)
+        ])
+        // Corrupt the central directory record signature.
+        let cdSig: [UInt8] = [0x50, 0x4B, 0x01, 0x02]
+        guard let range = zip.range(of: Data(cdSig)) else {
+            Issue.record("CD sig not found"); return
+        }
+        zip[range.lowerBound] = 0xFF
+        do {
+            _ = try ZipArchive(data: zip)
+            Issue.record("expected .corrupted")
+        } catch ZipError.corrupted {
+            // expected
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test func rejectsTruncatedCentralDirectory() {
+        // EOCD claims CD extends past file size.
+        var zip = Data()
+        zip.appendUInt32LE(0x06054B50)
+        zip.appendUInt16LE(0); zip.appendUInt16LE(0)
+        zip.appendUInt16LE(1); zip.appendUInt16LE(1)
+        zip.appendUInt32LE(46)                  // CD size 46
+        zip.appendUInt32LE(0xFFFF_FFFF)         // CD offset way past file end
+        zip.appendUInt16LE(0)
+        do {
+            _ = try ZipArchive(data: zip)
+            Issue.record("expected .corrupted")
+        } catch ZipError.corrupted {
+            // expected
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+}
