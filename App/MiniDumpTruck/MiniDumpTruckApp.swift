@@ -1,10 +1,38 @@
 import SwiftUI
+import AppKit
 import MiniDumpTruckCore
+
+/// Document controller that suppresses Recent Documents entries for files
+/// inside our zip-extraction cache. Otherwise, after TempStore.cleanupAged
+/// removes a tempdir 24h later, File > Open Recent would point to deleted
+/// files and surface a generic "file not found" error.
+private final class FilteringDocumentController: NSDocumentController {
+    override func noteNewRecentDocumentURL(_ url: URL) {
+        let cacheRoot = TempStore.root().path
+        if url.path.hasPrefix(cacheRoot) {
+            return  // do not record tempfiles in Recent Documents
+        }
+        super.noteNewRecentDocumentURL(url)
+    }
+}
 
 @main
 struct MiniDumpTruckApp: App {
     @State private var openedDocument: MinidumpDocument?
     @AppStorage("zoomScale") private var zoomScale: Double = 1.0
+
+    init() {
+        // Install our custom document controller as the shared singleton.
+        // NSDocumentController.init() auto-registers itself; the side effect
+        // installs the filtering subclass for all subsequent DocumentGroup opens.
+        _ = FilteringDocumentController()
+
+        // Best-effort cleanup of zip-extracted tempfiles older than 24 hours.
+        // Fired off as a detached task; never blocks app launch, never throws.
+        Task.detached(priority: .background) {
+            await TempStore.cleanupAged(olderThan: 24 * 3600)
+        }
+    }
 
     var body: some Scene {
         // Main welcome window
@@ -93,6 +121,10 @@ struct WelcomeView: View {
     @State private var isLoading = false
     @State private var loadingFileName: String = ""
     @State private var loadingFileSize: Int = 0
+    @State private var pickerArchive: ZipArchive?
+    @State private var pickerEntries: [ZipEntry] = []
+    @State private var pickerZipName: String = ""
+    @State private var isPickerPresented: Bool = false
 
     var body: some View {
         ZStack {
@@ -132,7 +164,7 @@ struct WelcomeView: View {
                                 .font(.system(size: 40))
                                 .foregroundStyle(isDragging ? .blue : .secondary)
 
-                            Text("Drop a .dmp file here")
+                            Text("Drop a .dmp or .zip file here")
                                 .font(.headline)
                                 .foregroundStyle(isDragging ? .blue : .secondary)
 
@@ -195,6 +227,29 @@ struct WelcomeView: View {
                 .transition(.opacity)
             }
         }
+        .sheet(isPresented: $isPickerPresented) {
+            if let archive = pickerArchive {
+                ZipPickerView(
+                    zipName: pickerZipName,
+                    entries: pickerEntries,
+                    onConfirm: { picks in
+                        // Capture before clearing state — extraction continues on a detached task.
+                        let zipName = pickerZipName
+                        isPickerPresented = false
+                        pickerArchive = nil
+                        pickerEntries = []
+                        pickerZipName = ""
+                        extractAndOpen(picks: picks, from: archive, zipName: zipName)
+                    },
+                    onCancel: {
+                        isPickerPresented = false
+                        pickerArchive = nil
+                        pickerEntries = []
+                        pickerZipName = ""
+                    }
+                )
+            }
+        }
         .frame(minWidth: 500, minHeight: 400)
         .background(Color(nsColor: .windowBackgroundColor))
         .animation(.easeInOut(duration: 0.2), value: isLoading)
@@ -205,80 +260,99 @@ struct WelcomeView: View {
         panel.allowedContentTypes = [.data]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.message = "Select a Windows minidump file (.dmp)"
+        panel.message = "Select a Windows minidump file (.dmp) or a zip containing one"
 
         if panel.runModal() == .OK, let url = panel.url {
-            let ext = url.pathExtension.lowercased()
-            guard ext == "dmp" || ext == "mdmp" || ext == "minidump" else {
-                let alert = NSAlert()
-                alert.messageText = "Unsupported File Type"
-                alert.informativeText = "Please select a Windows minidump file (.dmp, .mdmp)."
-                alert.alertStyle = .warning
-                alert.runModal()
-                return
-            }
-            loadDocument(from: url)
+            ingest(url: url)
         }
     }
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first else { return false }
+        guard !providers.isEmpty else { return false }
 
-        provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, error in
-            guard let data = item as? Data,
-                  let url = URL(dataRepresentation: data, relativeTo: nil) else {
-                return
-            }
-
-            // Validate file extension before loading
-            let ext = url.pathExtension.lowercased()
-            guard ext == "dmp" || ext == "mdmp" || ext == "minidump" else {
-                DispatchQueue.main.async {
-                    let alert = NSAlert()
-                    alert.messageText = "Unsupported File Type"
-                    alert.informativeText = "Please drop a Windows minidump file (.dmp, .mdmp)."
-                    alert.alertStyle = .warning
-                    alert.runModal()
+        for provider in providers {
+            provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, error in
+                if let error = error {
+                    DispatchQueue.main.async {
+                        let alert = NSAlert()
+                        alert.messageText = "Could Not Read Dropped File"
+                        alert.informativeText = error.localizedDescription
+                        alert.alertStyle = .warning
+                        alert.runModal()
+                    }
+                    return
                 }
-                return
-            }
-
-            DispatchQueue.main.async {
-                loadDocument(from: url)
+                guard let data = item as? Data,
+                      let url = URL(dataRepresentation: data, relativeTo: nil) else {
+                    return
+                }
+                DispatchQueue.main.async {
+                    ingest(url: url)
+                }
             }
         }
 
         return true
     }
 
-    private func loadDocument(from url: URL) {
-        // Show loading state
+    private func extractAndOpen(picks: [ZipEntry], from archive: ZipArchive, zipName: String) {
+        guard !isLoading else { return }
+        loadingFileName = zipName
+        isLoading = true
+        Task.detached(priority: .userInitiated) {
+            let outcome = await InputPipeline.extractSelected(picks, from: archive, sourceName: zipName)
+            await MainActor.run {
+                handle(outcome: outcome)
+            }
+        }
+    }
+
+    private func ingest(url: URL) {
+        guard !isLoading else { return }
         loadingFileName = url.lastPathComponent
         loadingFileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
         isLoading = true
 
-        // Parse in background to keep UI responsive
         Task.detached(priority: .userInitiated) {
-            do {
-                let data = try Data(contentsOf: url, options: .mappedIfSafe)
-                let parsedDump = try MinidumpParser.parse(data: data)
-                let document = MinidumpDocument(parsedDump: parsedDump, fileSize: data.count)
+            let outcome = await InputPipeline.ingest(url: url)
+            await MainActor.run {
+                handle(outcome: outcome)
+            }
+        }
+    }
 
-                await MainActor.run {
-                    isLoading = false
-                    openedDocument = document
-                }
-            } catch {
-                await MainActor.run {
-                    isLoading = false
-
-                    let alert = NSAlert()
-                    alert.messageText = "Failed to Open File"
-                    alert.informativeText = error.localizedDescription
-                    alert.alertStyle = .warning
-                    alert.runModal()
+    @MainActor
+    private func handle(outcome: InputPipeline.Outcome) {
+        isLoading = false
+        switch WelcomeRouter.route(outcome) {
+        case .openDocument(let parsed, let size):
+            openedDocument = MinidumpDocument(parsedDump: parsed, fileSize: size)
+        case .openWindows(let urls):
+            var failed: [URL] = []
+            for url in urls {
+                if !NSWorkspace.shared.open(url) {
+                    failed.append(url)
                 }
             }
+            if !failed.isEmpty {
+                let alert = NSAlert()
+                alert.messageText = "Could Not Open All Dumps"
+                let names = failed.map(\.lastPathComponent).joined(separator: ", ")
+                alert.informativeText = "Failed to open: \(names)"
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        case .showPicker(let archive, let entries, let zipName):
+            pickerArchive = archive
+            pickerEntries = entries
+            pickerZipName = zipName
+            isPickerPresented = true
+        case .showAlert(let title, let message):
+            let alert = NSAlert()
+            alert.messageText = title
+            alert.informativeText = message
+            alert.alertStyle = .warning
+            alert.runModal()
         }
     }
 }
@@ -336,6 +410,7 @@ struct HelpView: View {
                     Label(".dmp", systemImage: "doc")
                     Label(".mdmp", systemImage: "doc")
                     Label(".minidump", systemImage: "doc")
+                    Label(".zip (containing a .dmp)", systemImage: "doc.zipper")
                 }
 
                 helpSection("Sidebar Navigation") {
