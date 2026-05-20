@@ -21,23 +21,21 @@ struct ZipPickerView: View {
                 .foregroundStyle(.secondary)
 
             List(entries) { entry in
-                HStack {
-                    Toggle(isOn: Binding(
-                        get: { selected.contains(entry.id) },
-                        set: { isOn in
-                            if isOn { selected.insert(entry.id) }
-                            else { selected.remove(entry.id) }
-                        }
-                    )) {
-                        VStack(alignment: .leading) {
-                            Text(entry.name)
-                                .font(.system(.body, design: .monospaced))
-                            Text(ByteCountFormatter.string(
-                                fromByteCount: Int64(entry.uncompressedSize),
-                                countStyle: .file))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                Toggle(isOn: Binding(
+                    get: { selected.contains(entry.id) },
+                    set: { isOn in
+                        if isOn { selected.insert(entry.id) }
+                        else { selected.remove(entry.id) }
+                    }
+                )) {
+                    VStack(alignment: .leading) {
+                        Text(entry.name)
+                            .font(.system(.body, design: .monospaced))
+                        Text(ByteCountFormatter.string(
+                            fromByteCount: Int64(entry.uncompressedSize),
+                            countStyle: .file))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }

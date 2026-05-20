@@ -205,13 +205,19 @@ struct WelcomeView: View {
                     zipName: pickerZipName,
                     entries: pickerEntries,
                     onConfirm: { picks in
+                        // Capture before clearing state — extraction continues on a detached task.
+                        let zipName = pickerZipName
                         isPickerPresented = false
-                        extractAndOpen(picks: picks, from: archive, zipName: pickerZipName)
+                        pickerArchive = nil
+                        pickerEntries = []
+                        pickerZipName = ""
+                        extractAndOpen(picks: picks, from: archive, zipName: zipName)
                     },
                     onCancel: {
                         isPickerPresented = false
                         pickerArchive = nil
                         pickerEntries = []
+                        pickerZipName = ""
                     }
                 )
             }
