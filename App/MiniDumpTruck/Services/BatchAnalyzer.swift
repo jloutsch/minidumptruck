@@ -1,17 +1,21 @@
 import Foundation
 
-/// Result of analyzing a single dump file
+/// Outcome of analyzing a single dump file. Success carries the parsed
+/// dump and the analysis; failure carries a human-readable reason.
+public enum BatchOutcome: Sendable {
+    case success(ParsedMinidump, analysis: CrashAnalysis?)
+    case failure(reason: String)
+}
+
+/// Result of analyzing a single dump file. Every input file produces a
+/// result.
 public struct BatchResult: Sendable {
     public let fileName: String
-    public let dump: ParsedMinidump
-    public let analysis: CrashAnalysis?
-    public let error: String?
+    public let outcome: BatchOutcome
 
-    public init(fileName: String, dump: ParsedMinidump, analysis: CrashAnalysis?, error: String? = nil) {
+    public init(fileName: String, outcome: BatchOutcome) {
         self.fileName = fileName
-        self.dump = dump
-        self.analysis = analysis
-        self.error = error
+        self.outcome = outcome
     }
 }
 
@@ -64,10 +68,9 @@ public struct BatchAnalyzer: Sendable {
         var results: [BatchResult] = []
         var completed = 0
 
-        await withTaskGroup(of: BatchResult?.self) { group in
+        await withTaskGroup(of: BatchResult.self) { group in
             // Limit concurrency by adding tasks in batches
             var index = 0
-            let files = files
 
             // Seed initial batch
             for _ in 0..<min(maxConcurrency, files.count) {
@@ -79,9 +82,7 @@ public struct BatchAnalyzer: Sendable {
             }
 
             for await result in group {
-                if let result = result {
-                    results.append(result)
-                }
+                results.append(result)
                 completed += 1
                 progress(completed, files.count)
 
@@ -100,43 +101,46 @@ public struct BatchAnalyzer: Sendable {
         return (results, summary)
     }
 
-    /// Analyze a single file
-    private static func analyzeFile(_ url: URL) async -> BatchResult? {
+    /// Analyze a single file. Always returns a `BatchResult` — success or
+    /// `.failure` with a human-readable reason.
+    private static func analyzeFile(_ url: URL) async -> BatchResult {
         let fileName = url.lastPathComponent
         do {
             let data = try Data(contentsOf: url)
             let dump = try MinidumpParser.parse(data: data)
             let analyzer = CrashAnalyzer(dump: dump)
             let analysis = analyzer.analyze()
-            return BatchResult(fileName: fileName, dump: dump, analysis: analysis)
+            return BatchResult(fileName: fileName, outcome: .success(dump, analysis: analysis))
         } catch {
-            // Create a minimal error result
-            return nil
+            return BatchResult(fileName: fileName, outcome: .failure(reason: error.localizedDescription))
         }
     }
 
     /// Build aggregate summary from results
     private static func buildSummary(from results: [BatchResult], totalFiles: Int) -> BatchSummary {
-        let successCount = results.count
-        let failedCount = totalFiles - successCount
-
+        var successCount = 0
         var crashCount = 0
         var moduleCounts: [String: Int] = [:]
         var exceptionCounts: [UInt32: Int] = [:]
 
         for result in results {
-            if result.dump.exception != nil {
+            guard case .success(let dump, let analysis) = result.outcome else { continue }
+            successCount += 1
+
+            if dump.exception != nil {
                 crashCount += 1
             }
 
-            if let blame = result.analysis?.blameModule {
+            if let blame = analysis?.blameModule {
                 moduleCounts[blame.module.shortName, default: 0] += 1
             }
 
-            if let exception = result.dump.exception {
+            if let exception = dump.exception {
                 exceptionCounts[exception.exceptionCode, default: 0] += 1
             }
         }
+
+        let failedCount = totalFiles - successCount
 
         let topModules = moduleCounts
             .sorted { $0.value > $1.value }
