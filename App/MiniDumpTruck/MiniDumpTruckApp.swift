@@ -13,6 +13,22 @@ private final class FilteringDocumentController: NSDocumentController {
         }
         super.noteNewRecentDocumentURL(url)
     }
+
+    /// Sweep already-persisted entries left behind by older app builds
+    /// (before the filter existed) or by a brief window where the
+    /// subclass lost the registration race. NSDocumentController persists
+    /// recents to ~/Library/Preferences/<bundle-id>.plist under
+    /// `NSRecentDocuments`; stale entries pointing into cleaned cache
+    /// dirs survive indefinitely otherwise.
+    func purgeStaleCacheEntries() {
+        let stale = recentDocumentURLs.filter { TempStore.isInsideCache($0) }
+        guard !stale.isEmpty else { return }
+        // AppKit does not expose a public "remove one" API; rebuild by
+        // clearing then re-adding the survivors.
+        let keep = recentDocumentURLs.filter { !TempStore.isInsideCache($0) }
+        clearRecentDocuments(nil)
+        for url in keep { super.noteNewRecentDocumentURL(url) }
+    }
 }
 
 @main
@@ -24,7 +40,18 @@ struct MiniDumpTruckApp: App {
         // Install our custom document controller as the shared singleton.
         // NSDocumentController.init() auto-registers itself; the side effect
         // installs the filtering subclass for all subsequent DocumentGroup opens.
-        _ = FilteringDocumentController()
+        let controller = FilteringDocumentController()
+
+        // Defensive: if anything else instantiated NSDocumentController.shared
+        // before us (e.g. a future SwiftUI lazy-init, a framework, a test
+        // harness), the subclass would silently not win. Surface that so we
+        // notice in debug builds rather than ship a broken filter.
+        assert(NSDocumentController.shared === controller,
+               "FilteringDocumentController did not become the shared NSDocumentController — the filter is bypassed.")
+
+        // One-time sweep of stale Recent Documents entries left behind by
+        // pre-fix app builds. Cheap (≤10 URLs by default) and idempotent.
+        controller.purgeStaleCacheEntries()
 
         // Best-effort cleanup of zip-extracted tempfiles older than 24 hours.
         // Fired off as a detached task; never blocks app launch, never throws.

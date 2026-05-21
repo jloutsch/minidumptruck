@@ -26,14 +26,28 @@ public enum TempStore {
     /// Whether `url` points inside the cache root (used to suppress
     /// Recent Documents entries for ephemeral extracted files).
     ///
-    /// Standardizes both paths so the `/var` ↔ `/private/var` symlink
-    /// resolution does not produce a false negative, and matches on
-    /// full path components so `~/Library/Caches/MiniDumpTruck-other`
+    /// Resolves all symlinks (not just root-level `/var` ↔ `/private/var`
+    /// — also any user-relocated `~/Library/Caches` symlinks). Strips
+    /// trailing slashes defensively, compares case-insensitively
+    /// (macOS default APFS is case-insensitive-comparing), and matches
+    /// on full path components so `~/Library/Caches/MiniDumpTruck-other`
     /// does not falsely match `~/Library/Caches/MiniDumpTruck`.
-    public static func isInsideCache(_ url: URL) -> Bool {
-        let cacheRoot = root().standardizedFileURL.path
-        let target = url.standardizedFileURL.path
-        return target == cacheRoot || target.hasPrefix(cacheRoot + "/")
+    package static func isInsideCache(_ url: URL) -> Bool {
+        let rootPath = normalize(root())
+        let targetPath = normalize(url)
+        if targetPath == rootPath { return true }
+        return targetPath.hasPrefix(rootPath + "/")
+    }
+
+    /// Canonicalize a URL for cache-membership comparison. `resolvingSymlinksInPath()`
+    /// handles mid-path symlinks that `standardizedFileURL` misses; the trailing-
+    /// slash strip defends against undocumented FileManager variations.
+    private static func normalize(_ url: URL) -> String {
+        var path = url.resolvingSymlinksInPath().path
+        while path.count > 1 && path.hasSuffix("/") {
+            path.removeLast()
+        }
+        return path.lowercased()
     }
 
     /// Delete any `zip-*` subdirectory of the cache root whose creation
