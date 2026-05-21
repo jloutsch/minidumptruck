@@ -40,18 +40,24 @@ struct MiniDumpTruckApp: App {
         // Install our custom document controller as the shared singleton.
         // NSDocumentController.init() auto-registers itself; the side effect
         // installs the filtering subclass for all subsequent DocumentGroup opens.
-        let controller = FilteringDocumentController()
+        _ = FilteringDocumentController()
 
-        // Defensive: if anything else instantiated NSDocumentController.shared
-        // before us (e.g. a future SwiftUI lazy-init, a framework, a test
-        // harness), the subclass would silently not win. Surface that so we
-        // notice in debug builds rather than ship a broken filter.
-        assert(NSDocumentController.shared === controller,
-               "FilteringDocumentController did not become the shared NSDocumentController — the filter is bypassed.")
-
-        // One-time sweep of stale Recent Documents entries left behind by
-        // pre-fix app builds. Cheap (≤10 URLs by default) and idempotent.
-        controller.purgeStaleCacheEntries()
+        // The stale-Recent sweep and the install-confirmation assert wait
+        // until AppKit finishes its own applicationWillFinishLaunching so
+        // we don't touch recentDocumentURLs while the controller is still
+        // bootstrapping. Defer to the main run loop.
+        //
+        // NOTE: this defer fixes only the Xcode-launch crash path. A
+        // .app-bundle launch still segfaults inside SwiftUI's
+        // PlatformDocumentController.createDocumentClassIfNeeded because
+        // subclassing NSDocumentController conflicts with SwiftUI's own
+        // document-class setup at launch — tracked in #46. Do NOT inline
+        // this block; it does not address the bundle crash.
+        DispatchQueue.main.async {
+            assert(NSDocumentController.shared is FilteringDocumentController,
+                   "FilteringDocumentController did not become the shared NSDocumentController — the filter is bypassed.")
+            (NSDocumentController.shared as? FilteringDocumentController)?.purgeStaleCacheEntries()
+        }
 
         // Best-effort cleanup of zip-extracted tempfiles older than 24 hours.
         // Fired off as a detached task; never blocks app launch, never throws.
@@ -159,9 +165,10 @@ struct WelcomeView: View {
             VStack(spacing: 24) {
                 Spacer()
 
-                // Custom dump truck icon
+                // Custom dump truck icon — decorative, hidden from VoiceOver
                 DumpTruckIcon()
                     .frame(width: 120, height: 100)
+                    .accessibilityHidden(true)
 
                 Text("MiniDumpTruck")
                     .font(.largeTitle)

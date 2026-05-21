@@ -217,17 +217,96 @@ struct CrashAnalysisView: View {
     }
 
     private func stackSection(_ frames: [StackFrame]) -> some View {
-        GroupBox("Call Stack (\(frames.count) frames)") {
+        GroupBox {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(frames.enumerated()), id: \.element.id) { index, frame in
-                    stackFrameRow(frame, index: index)
+                stackHeaderRow
 
-                    if index < frames.count - 1 {
-                        Divider()
+                // LazyVStack: 60-200 frame stacks (deadlocks, deep recursion)
+                // would otherwise render every row eagerly and stall scrolling.
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(frames.enumerated()), id: \.element.id) { index, frame in
+                        stackFrameRow(frame, index: index)
+                            .contextMenu {
+                                Button("Copy this frame") {
+                                    copyToClipboard(frame.displayAddress)
+                                }
+                                Button("Copy entire stack") {
+                                    copyToClipboard(stackText(frames))
+                                }
+                            }
+
+                        if index < frames.count - 1 {
+                            Divider()
+                        }
                     }
                 }
             }
+        } label: {
+            HStack(spacing: 8) {
+                Text("Call Stack (\(frames.count) frames)")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    copyToClipboard(stackText(frames))
+                } label: {
+                    Label("Copy stack", systemImage: "doc.on.doc")
+                        .labelStyle(.titleAndIcon)
+                }
+                .controlSize(.small)
+                .help("Copy all \(frames.count) frames to the clipboard. SwiftUI doesn't support drag-select across stack rows; use this or right-click a row to copy.")
+            }
         }
+    }
+
+    private func stackText(_ frames: [StackFrame]) -> String {
+        // Header + legend so a stack pasted into a ticket is self-
+        // explanatory. Without it, a recipient sees "02  Ret  module!fn"
+        // with no idea what "Ret" or the column ordering means.
+        var lines: [String] = []
+        lines.append("Call stack (\(frames.count) frames)")
+        lines.append("Role: IP=instruction pointer, FP=frame-pointer chain (high confidence), Ret=stack scan (medium/low confidence)")
+        lines.append("")
+        lines.append("  #  Role  Frame")
+        for (index, frame) in frames.enumerated() {
+            // Sanitize against newlines or tabs in synthesized symbol
+            // names so pasted output keeps its column shape.
+            let safeAddress = frame.displayAddress
+                .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "\r", with: " ")
+                .replacingOccurrences(of: "\t", with: " ")
+            lines.append(String(format: "%3d  %-4@  %@", index, frame.frameType.shortLabel as NSString, safeAddress))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func copyToClipboard(_ s: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(s, forType: .string)
+    }
+
+    /// Column header for the call-stack list. Each header carries a
+    /// .help() tooltip explaining the concept — DFIR responders new to
+    /// the tool can hover to learn what the column means rather than
+    /// guess from the label.
+    private var stackHeaderRow: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("#")
+                .frame(width: 24, alignment: .leading)
+                .help("Frame index — 0 is the topmost (faulting) frame, higher numbers are callers further down the stack.")
+            Text("Role")
+                .frame(minWidth: frameTypeIndicatorWidth, alignment: .leading)
+                .help("How this frame was recovered: IP = instruction pointer recorded at crash time, FP = walked from the RBP chain (most reliable), Ret = found by scanning the stack for return-address-shaped values (heuristic).")
+            Text("Frame")
+                .help("Module name + function/offset where this frame was executing.")
+            Spacer()
+            Text("Conf.")
+                .help("Confidence that this frame is real and in the right position: High = recorded by the OS or recovered from the RBP chain. Medium = stack-scan hit inside a system module. Low = stack-scan hit inside a user/third-party module.")
+        }
+        .font(.caption2.smallCaps())
+        .fontWeight(.semibold)
+        .foregroundStyle(.secondary)
+        .padding(.vertical, 4)
+        .padding(.bottom, 2)
     }
 
     private func stackFrameRow(_ frame: StackFrame, index: Int) -> some View {
@@ -243,9 +322,18 @@ struct CrashAnalysisView: View {
 
             // Address and module
             VStack(alignment: .leading, spacing: 2) {
+                // Middle truncation keeps the module! prefix and the
+                // +0xNN offset both visible on long C++ template names.
+                // Per-row .textSelection is required for drag-to-select
+                // — verified empirically: parent ScrollView .textSelection
+                // does not propagate to nested LazyVStack rows.
                 Text(frame.displayAddress)
                     .fontDesign(.monospaced)
                     .foregroundStyle(frame.module != nil ? .primary : .secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .help(frame.displayAddress)
 
                 if let module = frame.module {
                     HStack(spacing: 4) {
@@ -274,39 +362,60 @@ struct CrashAnalysisView: View {
 
     // MARK: - Helpers
 
-    private func frameTypeIndicator(_ type: StackFrame.FrameType) -> some View {
-        let (icon, color): (String, Color) = {
-            switch type {
-            case .instructionPointer:
-                return ("arrow.right.circle.fill", .red)
-            case .framePointer:
-                return ("arrow.up.circle.fill", .green)
-            case .returnAddress:
-                return ("circle.fill", .blue)
-            }
-        }()
+    @ScaledMetric(relativeTo: .caption2) private var frameTypeIndicatorWidth: CGFloat = 44
 
-        return Image(systemName: icon)
-            .foregroundStyle(color)
-            .frame(width: 20)
+    private func frameTypeIndicator(_ type: StackFrame.FrameType) -> some View {
+        // Display strings live on the model (see StackFrame.FrameType
+        // extensions in Core) so tests can guard against label swaps.
+        let icon: String
+        let color: Color
+        switch type {
+        case .instructionPointer: icon = "arrow.right.circle.fill"; color = .red
+        case .framePointer:       icon = "arrow.up.circle.fill";    color = .green
+        case .returnAddress:      icon = "circle.fill";              color = .blue
+        }
+
+        return HStack(spacing: 4) {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+            Text(type.shortLabel)
+                .font(.caption.monospaced())
+                .fontWeight(.semibold)
+                .foregroundStyle(color)
+        }
+        .frame(minWidth: frameTypeIndicatorWidth, alignment: .leading)
+        .help(frameTypeHelpText(type))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(type.accessibilityLabel)
+    }
+
+    private func frameTypeHelpText(_ type: StackFrame.FrameType) -> String {
+        type.helpText
     }
 
     private func confidenceIndicator(_ confidence: StackFrame.FrameConfidence) -> some View {
-        let (text, color): (String, Color) = {
-            switch confidence {
-            case .high: return ("H", .green)
-            case .medium: return ("M", .orange)
-            case .low: return ("L", .gray)
-            }
-        }()
+        // Distinct SF Symbol per state so colorblind users (deuteranopia
+        // hits the green/orange pair particularly hard) get shape
+        // redundancy beyond color: ✓ for high, = for medium, ? for low.
+        let icon: String
+        let color: Color
+        switch confidence {
+        case .high:   icon = "checkmark.circle.fill";   color = .green
+        case .medium: icon = "equal.circle.fill";        color = .orange
+        case .low:    icon = "questionmark.circle.fill"; color = .gray
+        }
 
-        return Text(text)
-            .font(.caption2)
-            .fontWeight(.bold)
+        return Image(systemName: icon)
+            .symbolRenderingMode(.hierarchical)
             .foregroundStyle(color)
-            .frame(width: 16, height: 16)
-            .background(color.opacity(0.2))
-            .clipShape(Circle())
+            .imageScale(.medium)
+            .help(confidenceHelpText(confidence))
+            .accessibilityLabel(confidence.accessibilityLabel)
+            .accessibilityAddTraits(.isImage)
+    }
+
+    private func confidenceHelpText(_ confidence: StackFrame.FrameConfidence) -> String {
+        confidence.helpText
     }
 
     private func confidenceColor(_ confidence: AnalysisConfidence) -> Color {
