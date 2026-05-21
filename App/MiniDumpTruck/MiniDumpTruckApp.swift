@@ -42,11 +42,17 @@ struct MiniDumpTruckApp: App {
         // installs the filtering subclass for all subsequent DocumentGroup opens.
         _ = FilteringDocumentController()
 
-        // The stale-Recent sweep and the install-confirmation assert MUST
-        // wait until AppKit finishes its own applicationWillFinishLaunching
-        // — touching recentDocumentURLs / clearRecentDocuments from App.init
-        // segfaults inside PlatformDocumentController.createDocumentClassIfNeeded
-        // (verified empirically on macOS 15.7). Defer to the main run loop.
+        // The stale-Recent sweep and the install-confirmation assert wait
+        // until AppKit finishes its own applicationWillFinishLaunching so
+        // we don't touch recentDocumentURLs while the controller is still
+        // bootstrapping. Defer to the main run loop.
+        //
+        // NOTE: this defer fixes only the Xcode-launch crash path. A
+        // .app-bundle launch still segfaults inside SwiftUI's
+        // PlatformDocumentController.createDocumentClassIfNeeded because
+        // subclassing NSDocumentController conflicts with SwiftUI's own
+        // document-class setup at launch — tracked in #46. Do NOT inline
+        // this block; it does not address the bundle crash.
         DispatchQueue.main.async {
             assert(NSDocumentController.shared is FilteringDocumentController,
                    "FilteringDocumentController did not become the shared NSDocumentController — the filter is bypassed.")

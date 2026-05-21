@@ -41,7 +41,7 @@ public struct StackFrame: Identifiable, Sendable, Codable {
     public let confidence: FrameConfidence
 
     public enum FrameType: String, Sendable, Codable, CaseIterable {
-        case instructionPointer  // RIP - current execution
+        case instructionPointer  // RIP / exception address
         case returnAddress       // From stack scan
         case framePointer        // From RBP chain
 
@@ -62,12 +62,27 @@ public struct StackFrame: Identifiable, Sendable, Codable {
             case .framePointer: return "Frame pointer"
             }
         }
+
+        /// Educational tooltip text: what this role means and how the
+        /// analyzer recovered it. Wording must match the actual analyzer
+        /// behavior in `CrashAnalyzer.walkStack` — drift between tooltip
+        /// and behavior misleads DFIR responders.
+        public var helpText: String {
+            switch self {
+            case .instructionPointer:
+                return "Instruction pointer — the CPU address recorded for this thread at dump time (exception address, or RIP if no exception). For synchronous crashes this is the faulting instruction."
+            case .framePointer:
+                return "Frame pointer — recovered by walking the RBP chain (x64 standard prologue). Most reliable frame source: each entry was definitely a real call."
+            case .returnAddress:
+                return "Return address — recovered by scanning the stack for 8-byte aligned values that land inside a loaded module. Heuristic: may include stale return addresses from prior calls."
+            }
+        }
     }
 
     public enum FrameConfidence: String, Sendable, Codable, CaseIterable {
-        case high    // From RBP chain or known call instruction
-        case medium  // Return address in module text section
-        case low     // Address in module range but uncertain
+        case high    // Exception address, RIP, or RBP-chain frame
+        case medium  // Stack-scan hit inside a system module
+        case low     // Stack-scan hit inside a non-system module
 
         /// Single-letter glyph for the per-frame confidence pill.
         public var shortLabel: String {
@@ -84,6 +99,21 @@ public struct StackFrame: Identifiable, Sendable, Codable {
             case .high: return "High confidence"
             case .medium: return "Medium confidence"
             case .low: return "Low confidence"
+            }
+        }
+
+        /// Educational tooltip text. Wording mirrors how
+        /// `CrashAnalyzer.walkStack` actually assigns confidence —
+        /// editing here without updating the analyzer (or vice versa)
+        /// will mislead DFIR responders.
+        public var helpText: String {
+            switch self {
+            case .high:
+                return "High confidence — recorded by the OS at crash time (exception address / RIP) or recovered via the RBP chain. Trust this frame's position."
+            case .medium:
+                return "Medium confidence — stack-scan hit inside a known system module (kernel, ntdll, win32k, etc.). Likely a real prior call, but position relative to other frames may be off."
+            case .low:
+                return "Low confidence — stack-scan hit inside a user/third-party module. May be a stale return address or unrelated value that happens to fall inside an executable region. Cross-reference with adjacent frames before drawing conclusions."
             }
         }
     }

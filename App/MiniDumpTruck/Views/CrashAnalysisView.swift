@@ -259,9 +259,24 @@ struct CrashAnalysisView: View {
     }
 
     private func stackText(_ frames: [StackFrame]) -> String {
-        frames.enumerated().map { index, frame in
-            String(format: "%02d  %@  %@", index, frame.frameType.shortLabel, frame.displayAddress)
-        }.joined(separator: "\n")
+        // Header + legend so a stack pasted into a ticket is self-
+        // explanatory. Without it, a recipient sees "02  Ret  module!fn"
+        // with no idea what "Ret" or the column ordering means.
+        var lines: [String] = []
+        lines.append("Call stack (\(frames.count) frames)")
+        lines.append("Role: IP=instruction pointer, FP=frame-pointer chain (high confidence), Ret=stack scan (medium/low confidence)")
+        lines.append("")
+        lines.append("  #  Role  Frame")
+        for (index, frame) in frames.enumerated() {
+            // Sanitize against newlines or tabs in synthesized symbol
+            // names so pasted output keeps its column shape.
+            let safeAddress = frame.displayAddress
+                .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "\r", with: " ")
+                .replacingOccurrences(of: "\t", with: " ")
+            lines.append(String(format: "%3d  %-4@  %@", index, frame.frameType.shortLabel as NSString, safeAddress))
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func copyToClipboard(_ s: String) {
@@ -277,15 +292,15 @@ struct CrashAnalysisView: View {
         HStack(alignment: .firstTextBaseline) {
             Text("#")
                 .frame(width: 24, alignment: .leading)
-                .help("Frame index in the call stack — 0 is the topmost (faulting) frame, higher numbers are callers further down the stack.")
+                .help("Frame index — 0 is the topmost (faulting) frame, higher numbers are callers further down the stack.")
             Text("Role")
                 .frame(minWidth: frameTypeIndicatorWidth, alignment: .leading)
-                .help("How this frame was recovered: IP = instruction pointer (the exact crashing address), FP = recovered via the RBP frame-pointer chain (most reliable), Ret = recovered by scanning the stack for return addresses (heuristic, may include false positives).")
+                .help("How this frame was recovered: IP = instruction pointer recorded at crash time, FP = walked from the RBP chain (most reliable), Ret = found by scanning the stack for return-address-shaped values (heuristic).")
             Text("Frame")
                 .help("Module name + function/offset where this frame was executing.")
             Spacer()
             Text("Conf.")
-                .help("Confidence that this frame is real and in the right position: High = recovered from a reliable source (RBP chain or known call instruction). Medium = return address landed inside a module's text section. Low = address falls in a module range but the frame may be a stack scan false positive.")
+                .help("Confidence that this frame is real and in the right position: High = recorded by the OS or recovered from the RBP chain. Medium = stack-scan hit inside a system module. Low = stack-scan hit inside a user/third-party module.")
         }
         .font(.caption2.smallCaps())
         .fontWeight(.semibold)
@@ -375,14 +390,7 @@ struct CrashAnalysisView: View {
     }
 
     private func frameTypeHelpText(_ type: StackFrame.FrameType) -> String {
-        switch type {
-        case .instructionPointer:
-            return "Instruction pointer — the exact CPU address where execution was when the crash occurred (top of the stack)."
-        case .framePointer:
-            return "Frame pointer — recovered by walking the RBP chain. Most reliable frame source: each entry was definitely a real call."
-        case .returnAddress:
-            return "Return address — recovered by scanning the stack for addresses that fall inside a module's executable region. Heuristic: may include stale or unrelated addresses."
-        }
+        type.helpText
     }
 
     private func confidenceIndicator(_ confidence: StackFrame.FrameConfidence) -> some View {
@@ -407,14 +415,7 @@ struct CrashAnalysisView: View {
     }
 
     private func confidenceHelpText(_ confidence: StackFrame.FrameConfidence) -> String {
-        switch confidence {
-        case .high:
-            return "High confidence — frame recovered from a reliable source (RBP chain or a known call instruction). Trust this frame's position."
-        case .medium:
-            return "Medium confidence — return address landed inside a module's text section. Likely real, but the position relative to other frames may be off."
-        case .low:
-            return "Low confidence — address falls in a module range but the frame may be a stack-scan false positive. Cross-reference with adjacent frames before drawing conclusions."
-        }
+        confidence.helpText
     }
 
     private func confidenceColor(_ confidence: AnalysisConfidence) -> Color {
