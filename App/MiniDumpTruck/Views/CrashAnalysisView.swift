@@ -66,7 +66,7 @@ struct CrashAnalysisView: View {
                 HStack {
                     Text("Confidence:")
                     Text(analysis.confidence.displayName)
-                        .foregroundStyle(confidenceColor(analysis.confidence))
+                        .foregroundStyle(analysis.confidence.displayColor)
                         .fontWeight(.medium)
                 }
                 .font(.subheadline)
@@ -418,13 +418,6 @@ struct CrashAnalysisView: View {
         confidence.helpText
     }
 
-    private func confidenceColor(_ confidence: AnalysisConfidence) -> Color {
-        switch confidence {
-        case .high: return .green
-        case .medium: return .orange
-        case .low: return .gray
-        }
-    }
 
     private func categoryColor(for module: ModuleInfo) -> Color {
         switch SystemModules.category(for: module.name) {

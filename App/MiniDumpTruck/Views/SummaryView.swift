@@ -162,15 +162,7 @@ struct SummaryView: View {
                         .foregroundStyle(.red)
                         .lineLimit(2)
                     Spacer()
-                    Text("\(analysis.confidence.displayName) Confidence")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundStyle(confidenceColor(analysis.confidence))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(confidenceColor(analysis.confidence).opacity(0.15))
-                        .clipShape(Capsule())
-                        .layoutPriority(1)
+                    ConfidenceChip(confidence: analysis.confidence)
                 }
 
                 if let blame = analysis.blameModule {
@@ -330,14 +322,7 @@ struct SummaryView: View {
 
                 Spacer()
 
-                Text("\(analysis.confidence.displayName) Confidence")
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .foregroundStyle(confidenceColor(analysis.confidence))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(confidenceColor(analysis.confidence).opacity(0.15))
-                    .clipShape(Capsule())
+                ConfidenceChip(confidence: analysis.confidence)
             }
 
             GroupBox {
@@ -385,14 +370,6 @@ struct SummaryView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-        }
-    }
-
-    private func confidenceColor(_ confidence: AnalysisConfidence) -> Color {
-        switch confidence {
-        case .high: return .green
-        case .medium: return .orange
-        case .low: return .gray
         }
     }
 
