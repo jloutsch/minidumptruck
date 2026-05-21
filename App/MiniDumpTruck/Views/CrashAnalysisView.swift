@@ -218,7 +218,9 @@ struct CrashAnalysisView: View {
 
     private func stackSection(_ frames: [StackFrame]) -> some View {
         GroupBox("Call Stack (\(frames.count) frames)") {
-            VStack(alignment: .leading, spacing: 0) {
+            // LazyVStack: 60-200 frame stacks (deadlocks, deep recursion)
+            // would otherwise render every row eagerly and stall scrolling.
+            LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(frames.enumerated()), id: \.element.id) { index, frame in
                     stackFrameRow(frame, index: index)
 
@@ -243,9 +245,16 @@ struct CrashAnalysisView: View {
 
             // Address and module
             VStack(alignment: .leading, spacing: 2) {
+                // Long symbolicated C++ template names (200+ chars) would
+                // otherwise push the row off-screen with no horizontal
+                // scroll. Middle truncation keeps the module! prefix and
+                // the +0xNN offset both visible.
                 Text(frame.displayAddress)
                     .fontDesign(.monospaced)
                     .foregroundStyle(frame.module != nil ? .primary : .secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
 
                 if let module = frame.module {
                     HStack(spacing: 4) {
@@ -275,30 +284,53 @@ struct CrashAnalysisView: View {
     // MARK: - Helpers
 
     private func frameTypeIndicator(_ type: StackFrame.FrameType) -> some View {
-        let (icon, color): (String, Color) = {
-            switch type {
-            case .instructionPointer:
-                return ("arrow.right.circle.fill", .red)
-            case .framePointer:
-                return ("arrow.up.circle.fill", .green)
-            case .returnAddress:
-                return ("circle.fill", .blue)
-            }
-        }()
+        // Color alone fails colorblind users; pair the icon with a short
+        // text label so the frame role is readable without color, and
+        // give VoiceOver a sensible label instead of the SF Symbol name.
+        let icon: String
+        let color: Color
+        let shortLabel: String
+        let voiceOverLabel: String
+        switch type {
+        case .instructionPointer:
+            icon = "arrow.right.circle.fill"
+            color = .red
+            shortLabel = "IP"
+            voiceOverLabel = "Instruction pointer"
+        case .framePointer:
+            icon = "arrow.up.circle.fill"
+            color = .green
+            shortLabel = "FP"
+            voiceOverLabel = "Frame pointer"
+        case .returnAddress:
+            icon = "circle.fill"
+            color = .blue
+            shortLabel = "Ret"
+            voiceOverLabel = "Return address"
+        }
 
-        return Image(systemName: icon)
-            .foregroundStyle(color)
-            .frame(width: 20)
+        return HStack(spacing: 4) {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+            Text(shortLabel)
+                .font(.caption2)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+        }
+        .frame(width: 44, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(voiceOverLabel)
     }
 
     private func confidenceIndicator(_ confidence: StackFrame.FrameConfidence) -> some View {
-        let (text, color): (String, Color) = {
-            switch confidence {
-            case .high: return ("H", .green)
-            case .medium: return ("M", .orange)
-            case .low: return ("L", .gray)
-            }
-        }()
+        let text: String
+        let color: Color
+        let voiceOverLabel: String
+        switch confidence {
+        case .high:   text = "H"; color = .green;  voiceOverLabel = "High confidence"
+        case .medium: text = "M"; color = .orange; voiceOverLabel = "Medium confidence"
+        case .low:    text = "L"; color = .gray;   voiceOverLabel = "Low confidence"
+        }
 
         return Text(text)
             .font(.caption2)
@@ -307,6 +339,7 @@ struct CrashAnalysisView: View {
             .frame(width: 16, height: 16)
             .background(color.opacity(0.2))
             .clipShape(Circle())
+            .accessibilityLabel(voiceOverLabel)
     }
 
     private func confidenceColor(_ confidence: AnalysisConfidence) -> Color {

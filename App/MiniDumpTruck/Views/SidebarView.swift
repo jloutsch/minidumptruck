@@ -5,22 +5,26 @@ struct SidebarView: View {
     let document: MinidumpDocument
     @Bindable var viewModel: DumpViewModel
 
+    /// Bridge the view-model's non-optional selection to the optional
+    /// binding `List(selection:)` expects for single selection.
+    private var sectionBinding: Binding<NavigationSection?> {
+        Binding(
+            get: { viewModel.selectedSection },
+            set: { if let new = $0 { viewModel.selectedSection = new } }
+        )
+    }
+
     var body: some View {
-        List {
+        // Native List(selection:) gives us arrow-key navigation, native
+        // selection highlighting, and correct VoiceOver row semantics —
+        // none of which the prior Button + listRowBackground pattern
+        // delivered.
+        List(selection: sectionBinding) {
             Section("Analysis") {
                 ForEach(visibleSections, id: \.self) { section in
-                    Button {
-                        viewModel.selectedSection = section
-                    } label: {
-                        Label(section.rawValue, systemImage: section.systemImage)
-                            .badge(badge(for: section))
-                    }
-                    .buttonStyle(.plain)
-                    .listRowBackground(
-                        viewModel.selectedSection == section
-                            ? Color.accentColor.opacity(0.2)
-                            : Color.clear
-                    )
+                    Label(section.rawValue, systemImage: section.systemImage)
+                        .badge(badge(for: section))
+                        .tag(section)
                 }
             }
         }

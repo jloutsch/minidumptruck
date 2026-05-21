@@ -159,9 +159,10 @@ struct WelcomeView: View {
             VStack(spacing: 24) {
                 Spacer()
 
-                // Custom dump truck icon
+                // Custom dump truck icon — decorative, hidden from VoiceOver
                 DumpTruckIcon()
                     .frame(width: 120, height: 100)
+                    .accessibilityHidden(true)
 
                 Text("MiniDumpTruck")
                     .font(.largeTitle)
