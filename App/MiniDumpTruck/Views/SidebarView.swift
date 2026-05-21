@@ -20,16 +20,18 @@ struct SidebarView: View {
     }
 
     var body: some View {
-        // Native List(selection:) gives us arrow-key navigation, native
-        // selection highlighting, and correct VoiceOver row semantics —
-        // none of which the prior Button + listRowBackground pattern
-        // delivered.
+        // Native List(selection:) with NavigationLink rows is Apple's
+        // canonical NavigationSplitView sidebar pattern. NavigationLink(
+        // value:) makes each row keyboard-focusable so up/down arrows
+        // move selection — a plain Label.tag() does not register as a
+        // focusable item on macOS sidebars.
         List(selection: sectionBinding) {
             Section("Analysis") {
                 ForEach(visibleSections, id: \.self) { section in
-                    Label(section.rawValue, systemImage: section.systemImage)
-                        .badge(badge(for: section))
-                        .tag(section)
+                    NavigationLink(value: section) {
+                        Label(section.rawValue, systemImage: section.systemImage)
+                            .badge(badge(for: section))
+                    }
                 }
             }
         }
