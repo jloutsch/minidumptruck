@@ -208,6 +208,27 @@ struct CLITests {
         #expect(!reason.isEmpty)
     }
 
+    @Test func analyzeStderrSanitizesAnsiEscapeInFilename() throws {
+        // Filename containing an ANSI escape sequence (clear-screen). The
+        // CLI must not echo the raw escape to stderr — it would let an
+        // attacker corrupt the terminal output of anyone running batch
+        // analysis on a directory of dumps.
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-test-ansi-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let evilName = "evil\u{001B}[2J.dmp"
+        try Data(repeating: 0x41, count: 64).write(to: tmpDir.appendingPathComponent(evilName))
+
+        let result = try Self.runCLI("analyze", "--summary", tmpDir.path)
+
+        #expect(!result.stderr.contains("\u{001B}"))
+        // The non-control parts of the filename should still appear.
+        #expect(result.stderr.contains("evil"))
+        #expect(result.stderr.contains(".dmp"))
+    }
+
     @Test func analyzeDirectoryWithNoDmpFiles() throws {
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-test-empty-\(UUID().uuidString)")

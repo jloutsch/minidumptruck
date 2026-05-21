@@ -112,7 +112,7 @@ public struct BatchAnalyzer: Sendable {
             let analysis = analyzer.analyze()
             return BatchResult(fileName: fileName, outcome: .success(dump, analysis: analysis))
         } catch {
-            return BatchResult(fileName: fileName, outcome: .failure(reason: error.localizedDescription))
+            return BatchResult(fileName: fileName, outcome: .failure(reason: ErrorSanitization.reason(for: error)))
         }
     }
 

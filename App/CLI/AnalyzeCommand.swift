@@ -94,7 +94,13 @@ struct AnalyzeCommand: AsyncParsableCommand {
                     print(report)
                 }
             case .failure(let reason):
-                let line = "\(result.fileName): \(reason)\n"
+                // Defense in depth: BatchAnalyzer already categorizes the
+                // reason via ErrorSanitization.reason(for:), but filenames
+                // are user-controlled and may contain ANSI escapes, RTL
+                // overrides, or newlines — sanitize again at the boundary.
+                let safeName = result.fileName.sanitizedForOutput(maxLength: 255)
+                let safeReason = reason.sanitizedForOutput()
+                let line = "\(safeName): \(safeReason)\n"
                 FileHandle.standardError.write(Data(line.utf8))
             }
         }
