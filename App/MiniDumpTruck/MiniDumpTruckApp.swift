@@ -53,6 +53,7 @@ struct MiniDumpTruckApp: App {
             }
             .helpWindowHandler()
         }
+        .defaultSize(width: 1200, height: 800)
         .commands {
             CommandGroup(after: .toolbar) {
                 Button("Go to Address...") {
@@ -107,6 +108,7 @@ struct MiniDumpTruckApp: App {
         DocumentGroup(viewing: MinidumpDocument.self) { file in
             ContentView(document: file.document)
         }
+        .defaultSize(width: 1200, height: 800)
 
         Window("MiniDumpTruck Help", id: "help") {
             HelpView()
