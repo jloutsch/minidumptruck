@@ -7,18 +7,40 @@ struct SummaryView: View {
     @State private var analysis: CrashAnalysis?
     @State private var isAnalyzing = false
 
+    private enum CardMetrics {
+        static let cornerRadius: CGFloat = 8
+        static let accentBarWidth: CGFloat = 4
+        static let contentPadding: CGFloat = 14
+    }
+
+    private var verdictState: VerdictState {
+        VerdictState.from(
+            isAnalyzing: isAnalyzing,
+            analysis: analysis,
+            exception: document.exception,
+            hasParseWarnings: !document.parseWarnings.isEmpty
+        )
+    }
+
+    /// Stable identity for state reset when the user opens a new dump
+    /// in the same view tree.
+    private var documentIdentity: AnyHashable {
+        AnyHashable([
+            AnyHashable(document.fileSize),
+            AnyHashable(document.header?.timestamp ?? .distantPast),
+            AnyHashable(document.header?.checksum ?? 0)
+        ])
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // Verdict card — top slot, always shows something
                 verdictCard
 
                 Divider()
 
-                // Header
                 headerSection
 
-                // Parse warnings (if any)
                 if !document.parseWarnings.isEmpty {
                     Divider()
                     warningsSection
@@ -26,135 +48,34 @@ struct SummaryView: View {
 
                 Divider()
 
-                // Exception summary (if present)
                 if let exception = document.exception {
                     exceptionSection(exception)
                     Divider()
                 }
 
-                // Crash diagnosis full detail (if analysis available)
                 if let analysis = analysis {
                     diagnosisSection(analysis)
                     Divider()
                 }
 
-                // System info
                 if let systemInfo = document.systemInfo {
                     systemSection(systemInfo)
                     Divider()
                 }
 
-                // Quick stats
                 statsSection
             }
             .padding()
         }
         .navigationTitle("Crash Summary")
         .textSelection(.enabled)
-        .task {
+        .task(id: documentIdentity) {
+            // Reset state when the bound document changes so we never
+            // show a stale verdict for a freshly opened dump.
+            analysis = nil
+            isAnalyzing = false
             await runAnalysis()
         }
-    }
-
-    @ViewBuilder
-    private var verdictCard: some View {
-        if isAnalyzing {
-            verdictCardContainer(accent: .secondary) {
-                HStack(spacing: 12) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Analyzing crash…")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        } else if let analysis = analysis {
-            verdictCardAnalyzed(analysis)
-        } else if document.exception == nil {
-            verdictCardContainer(accent: .green) {
-                Label("No exception recorded in this dump", systemImage: "checkmark.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(.green)
-            }
-        } else if let exception = document.exception {
-            // Defensive: exception exists but analysis hasn't run yet (shouldn't
-            // happen — `.task` fires on appear — but degrade gracefully).
-            verdictCardContainer(accent: .red) {
-                Label(exception.exceptionName, systemImage: "exclamationmark.triangle.fill")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.red)
-            }
-        }
-    }
-
-    private func verdictCardAnalyzed(_ analysis: CrashAnalysis) -> some View {
-        verdictCardContainer(accent: .red) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline) {
-                    if let exception = document.exception {
-                        Label(exception.exceptionName, systemImage: "exclamationmark.triangle.fill")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.red)
-                    } else {
-                        Label("Crash Diagnosis", systemImage: "wand.and.stars")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                    }
-                    Spacer()
-                    Text(analysis.confidence.displayName + " confidence")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundStyle(confidenceColor(analysis.confidence))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(confidenceColor(analysis.confidence).opacity(0.15))
-                        .clipShape(Capsule())
-                }
-
-                if let blame = analysis.blameModule {
-                    HStack(spacing: 6) {
-                        Text(blame.module.shortName)
-                            .font(.title3)
-                            .fontWeight(.medium)
-                            .fontDesign(.monospaced)
-                            .foregroundStyle(.blue)
-                        Text("—")
-                            .foregroundStyle(.secondary)
-                        Text(blame.reasonDescription)
-                            .font(.callout)
-                    }
-                }
-
-                Text(analysis.crashSummary.recommendation)
-                    .font(.callout)
-
-                Button("View full analysis") {
-                    viewModel.selectedSection = .analyze
-                }
-                .buttonStyle(.link)
-                .font(.callout)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func verdictCardContainer<Content: View>(
-        accent: Color,
-        @ViewBuilder _ content: () -> Content
-    ) -> some View {
-        HStack(spacing: 0) {
-            Rectangle()
-                .fill(accent)
-                .frame(width: 4)
-            GroupBox {
-                content()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     private func runAnalysis() async {
@@ -167,24 +88,169 @@ struct SummaryView: View {
         isAnalyzing = false
     }
 
+    // MARK: - Verdict card
+
+    @ViewBuilder
+    private var verdictCard: some View {
+        switch verdictState {
+        case .analyzing:
+            verdictCardChrome(
+                accent: .gray,
+                accessibilityLabel: "Verdict: analyzing"
+            ) {
+                HStack(spacing: 12) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Analyzing crash…")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        case .analyzed(let analysis):
+            verdictCardAnalyzed(analysis)
+        case .noException:
+            verdictCardChrome(
+                accent: .green,
+                accessibilityLabel: "Verdict: clean dump, no crash exception"
+            ) {
+                Label("Dump loaded — no crash exception present", systemImage: "checkmark.circle.fill")
+                    .font(.title3)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.green)
+            }
+        case .indeterminate:
+            verdictCardChrome(
+                accent: .orange,
+                accessibilityLabel: "Verdict: indeterminate, parse warnings present"
+            ) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Indeterminate — parse warnings present", systemImage: "exclamationmark.triangle.fill")
+                        .font(.title3)
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.orange)
+                    Text("This dump may be incomplete or corrupted. See parse warnings below before trusting the absence of an exception.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        case .exceptionPending(let exception):
+            verdictCardChrome(
+                accent: .red,
+                accessibilityLabel: "Verdict: \(exception.exceptionName), analysis pending"
+            ) {
+                Label(exception.exceptionName, systemImage: "exclamationmark.triangle.fill")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private func verdictCardAnalyzed(_ analysis: CrashAnalysis) -> some View {
+        let exceptionName = document.exception?.exceptionName ?? "Crash Diagnosis"
+        return verdictCardChrome(
+            accent: .red,
+            accessibilityLabel: "Verdict: \(exceptionName), \(analysis.confidence.displayName) confidence"
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    Label(exceptionName, systemImage: "exclamationmark.triangle.fill")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                    Spacer()
+                    Text("\(analysis.confidence.displayName) Confidence")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundStyle(confidenceColor(analysis.confidence))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(confidenceColor(analysis.confidence).opacity(0.15))
+                        .clipShape(Capsule())
+                        .layoutPriority(1)
+                }
+
+                if let blame = analysis.blameModule {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(Self.sanitized(blame.module.shortName))
+                            .font(.callout)
+                            .fontWeight(.medium)
+                            .fontDesign(.monospaced)
+                            .foregroundStyle(Color.accentColor)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text("—")
+                            .foregroundStyle(.secondary)
+                        Text(Self.sanitized(blame.reasonDescription))
+                            .font(.callout)
+                            .lineLimit(2)
+                    }
+                }
+
+                Button {
+                    viewModel.selectedSection = .analyze
+                } label: {
+                    Label("View full analysis", systemImage: "arrow.right")
+                        .font(.callout)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(Color.accentColor)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func verdictCardChrome<Content: View>(
+        accent: Color,
+        accessibilityLabel: String,
+        @ViewBuilder _ content: () -> Content
+    ) -> some View {
+        HStack(spacing: 0) {
+            Rectangle()
+                .fill(accent)
+                .frame(width: CardMetrics.accentBarWidth)
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(CardMetrics.contentPadding)
+        }
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: CardMetrics.cornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: CardMetrics.cornerRadius)
+                .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 0.5)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private static func sanitized(_ s: String) -> String {
+        s.replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+    }
+
+    // MARK: - Other sections
+
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             if let header = document.header {
-                HStack {
+                HStack(spacing: 10) {
                     Image(systemName: "doc.text")
-                        .font(.largeTitle)
+                        .font(.title3)
                         .foregroundStyle(.secondary)
 
-                    VStack(alignment: .leading) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("Windows Minidump")
-                            .font(.title2)
-                            .fontWeight(.semibold)
+                            .font(.headline)
 
-                        Text("Created: \(header.timestamp.formatted())")
-                            .foregroundStyle(.secondary)
-
-                        Text("Size: \(ByteCountFormatter.string(fromByteCount: Int64(document.fileSize), countStyle: .file))")
-                            .foregroundStyle(.secondary)
+                        HStack(spacing: 12) {
+                            Text(header.timestamp.formatted())
+                            Text(ByteCountFormatter.string(fromByteCount: Int64(document.fileSize), countStyle: .file))
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     }
                 }
 
@@ -201,6 +267,7 @@ struct SummaryView: View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Exception", systemImage: "exclamationmark.triangle")
                 .font(.headline)
+                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.red)
 
             GroupBox {
@@ -263,7 +330,7 @@ struct SummaryView: View {
 
                 Spacer()
 
-                Text(analysis.confidence.displayName + " Confidence")
+                Text("\(analysis.confidence.displayName) Confidence")
                     .font(.caption)
                     .fontWeight(.medium)
                     .foregroundStyle(confidenceColor(analysis.confidence))
@@ -275,7 +342,6 @@ struct SummaryView: View {
 
             GroupBox {
                 VStack(alignment: .leading, spacing: 10) {
-                    // Probable cause
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Probable Cause")
                             .font(.subheadline)
@@ -284,7 +350,6 @@ struct SummaryView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    // Blamed module
                     if let blame = analysis.blameModule {
                         Divider()
                         VStack(alignment: .leading, spacing: 2) {
@@ -304,7 +369,6 @@ struct SummaryView: View {
 
                     Divider()
 
-                    // Recommendation
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Recommendation")
                             .font(.subheadline)
@@ -313,7 +377,6 @@ struct SummaryView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    // Link to full analysis
                     Button("View Full Crash Analysis") {
                         viewModel.selectedSection = .analyze
                     }
