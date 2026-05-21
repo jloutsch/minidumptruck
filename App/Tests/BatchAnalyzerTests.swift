@@ -52,7 +52,9 @@ struct BatchAnalyzerTests {
         let (results, _) = await BatchAnalyzer.analyze(files: [url])
 
         let result = try #require(results.first)
-        #expect(result.dump.streamDirectory.entries.count > 0)
+        let dump = try #require(result.dump)
+        #expect(dump.streamDirectory.entries.count > 0)
+        #expect(result.error == nil)
     }
 
     @Test func resultContainsAnalysis() async throws {
@@ -63,7 +65,8 @@ struct BatchAnalyzerTests {
 
         // Analysis may be nil if no exception is present
         let result = try #require(results.first)
-        if result.dump.exception != nil {
+        let dump = try #require(result.dump)
+        if dump.exception != nil {
             #expect(result.analysis != nil)
         }
     }
@@ -80,21 +83,49 @@ struct BatchAnalyzerTests {
 
         let (results, summary) = await BatchAnalyzer.analyze(files: dmpFiles)
 
+        #expect(results.count == dmpFiles.count)
         #expect(summary.totalFiles == dmpFiles.count)
-        #expect(summary.successfulParses == results.count)
-        #expect(summary.failedParses == dmpFiles.count - results.count)
+        let parsed = results.filter { $0.dump != nil }.count
+        #expect(summary.successfulParses == parsed)
+        #expect(summary.failedParses == dmpFiles.count - parsed)
     }
 
     // MARK: - Invalid Files
 
-    @Test func invalidFileIsSkipped() async {
+    @Test func invalidFileProducesErrorResult() async throws {
         let fakeFile = URL(fileURLWithPath: "/tmp/nonexistent_minidump_test_\(UUID().uuidString).dmp")
         let (results, summary) = await BatchAnalyzer.analyze(files: [fakeFile])
 
-        #expect(results.isEmpty)
+        #expect(results.count == 1)
+        let result = try #require(results.first)
+        #expect(result.dump == nil)
+        #expect(result.analysis == nil)
+        #expect(result.error != nil)
+        #expect(result.fileName == fakeFile.lastPathComponent)
         #expect(summary.totalFiles == 1)
         #expect(summary.failedParses == 1)
         #expect(summary.successfulParses == 0)
+    }
+
+    @Test func mixedBatchPreservesBothSuccessAndFailure() async throws {
+        let good = Self.testFile("test.dmp")
+        try #require(FileManager.default.fileExists(atPath: good.path))
+        let bad = URL(fileURLWithPath: "/tmp/nonexistent_minidump_test_\(UUID().uuidString).dmp")
+
+        let (results, summary) = await BatchAnalyzer.analyze(files: [good, bad])
+
+        #expect(results.count == 2)
+        #expect(summary.totalFiles == 2)
+        #expect(summary.successfulParses == 1)
+        #expect(summary.failedParses == 1)
+
+        let badResult = try #require(results.first { $0.fileName == bad.lastPathComponent })
+        #expect(badResult.dump == nil)
+        #expect(badResult.error != nil)
+
+        let goodResult = try #require(results.first { $0.fileName == good.lastPathComponent })
+        #expect(goodResult.dump != nil)
+        #expect(goodResult.error == nil)
     }
 
     // MARK: - Summary Tests
@@ -105,7 +136,7 @@ struct BatchAnalyzerTests {
 
         let (results, summary) = await BatchAnalyzer.analyze(files: [url])
 
-        let hasCrash = results.first?.dump.exception != nil
+        let hasCrash = results.first?.dump?.exception != nil
         if hasCrash {
             #expect(summary.crashesDetected > 0)
         } else {

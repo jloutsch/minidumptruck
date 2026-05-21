@@ -80,14 +80,23 @@ struct AnalyzeCommand: AsyncParsableCommand {
         if !summary {
             print("")  // Clear progress line
             for result in results {
+                guard let dump = result.dump else { continue }
                 print("")
                 let report = TextReporter.generateReport(
-                    from: result.dump,
+                    from: dump,
                     analysis: result.analysis,
                     fileName: result.fileName,
                     verbose: verbose
                 )
                 print(report)
+            }
+        }
+
+        for result in results where result.dump == nil {
+            let reason = result.error ?? "unknown error"
+            let line = "\(result.fileName): \(reason)\n"
+            if let data = line.data(using: .utf8) {
+                FileHandle.standardError.write(data)
             }
         }
 

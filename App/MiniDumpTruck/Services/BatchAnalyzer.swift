@@ -1,13 +1,14 @@
 import Foundation
 
-/// Result of analyzing a single dump file
+/// Result of analyzing a single dump file. Failure produces a result with
+/// `dump == nil` and `error` populated, so callers see every input file.
 public struct BatchResult: Sendable {
     public let fileName: String
-    public let dump: ParsedMinidump
+    public let dump: ParsedMinidump?
     public let analysis: CrashAnalysis?
     public let error: String?
 
-    public init(fileName: String, dump: ParsedMinidump, analysis: CrashAnalysis?, error: String? = nil) {
+    public init(fileName: String, dump: ParsedMinidump?, analysis: CrashAnalysis?, error: String? = nil) {
         self.fileName = fileName
         self.dump = dump
         self.analysis = analysis
@@ -64,10 +65,9 @@ public struct BatchAnalyzer: Sendable {
         var results: [BatchResult] = []
         var completed = 0
 
-        await withTaskGroup(of: BatchResult?.self) { group in
+        await withTaskGroup(of: BatchResult.self) { group in
             // Limit concurrency by adding tasks in batches
             var index = 0
-            let files = files
 
             // Seed initial batch
             for _ in 0..<min(maxConcurrency, files.count) {
@@ -79,9 +79,7 @@ public struct BatchAnalyzer: Sendable {
             }
 
             for await result in group {
-                if let result = result {
-                    results.append(result)
-                }
+                results.append(result)
                 completed += 1
                 progress(completed, files.count)
 
@@ -100,8 +98,9 @@ public struct BatchAnalyzer: Sendable {
         return (results, summary)
     }
 
-    /// Analyze a single file
-    private static func analyzeFile(_ url: URL) async -> BatchResult? {
+    /// Analyze a single file. Always returns a `BatchResult`; on failure,
+    /// `dump` is nil and `error` carries a human-readable reason.
+    private static func analyzeFile(_ url: URL) async -> BatchResult {
         let fileName = url.lastPathComponent
         do {
             let data = try Data(contentsOf: url)
@@ -110,22 +109,22 @@ public struct BatchAnalyzer: Sendable {
             let analysis = analyzer.analyze()
             return BatchResult(fileName: fileName, dump: dump, analysis: analysis)
         } catch {
-            // Create a minimal error result
-            return nil
+            return BatchResult(fileName: fileName, dump: nil, analysis: nil, error: error.localizedDescription)
         }
     }
 
     /// Build aggregate summary from results
     private static func buildSummary(from results: [BatchResult], totalFiles: Int) -> BatchSummary {
-        let successCount = results.count
-        let failedCount = totalFiles - successCount
-
+        var successCount = 0
         var crashCount = 0
         var moduleCounts: [String: Int] = [:]
         var exceptionCounts: [UInt32: Int] = [:]
 
         for result in results {
-            if result.dump.exception != nil {
+            guard let dump = result.dump else { continue }
+            successCount += 1
+
+            if dump.exception != nil {
                 crashCount += 1
             }
 
@@ -133,10 +132,12 @@ public struct BatchAnalyzer: Sendable {
                 moduleCounts[blame.module.shortName, default: 0] += 1
             }
 
-            if let exception = result.dump.exception {
+            if let exception = dump.exception {
                 exceptionCounts[exception.exceptionCode, default: 0] += 1
             }
         }
+
+        let failedCount = totalFiles - successCount
 
         let topModules = moduleCounts
             .sorted { $0.value > $1.value }
