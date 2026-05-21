@@ -23,6 +23,19 @@ public enum TempStore {
         return dir
     }
 
+    /// Whether `url` points inside the cache root (used to suppress
+    /// Recent Documents entries for ephemeral extracted files).
+    ///
+    /// Standardizes both paths so the `/var` ↔ `/private/var` symlink
+    /// resolution does not produce a false negative, and matches on
+    /// full path components so `~/Library/Caches/MiniDumpTruck-other`
+    /// does not falsely match `~/Library/Caches/MiniDumpTruck`.
+    public static func isInsideCache(_ url: URL) -> Bool {
+        let cacheRoot = root().standardizedFileURL.path
+        let target = url.standardizedFileURL.path
+        return target == cacheRoot || target.hasPrefix(cacheRoot + "/")
+    }
+
     /// Delete any `zip-*` subdirectory of the cache root whose creation
     /// date is older than `olderThan` seconds. Best-effort: never throws.
     public static func cleanupAged(olderThan: TimeInterval) async {

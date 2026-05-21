@@ -37,6 +37,61 @@ struct TempStoreTests {
         #expect(!FileManager.default.fileExists(atPath: stale.path))
     }
 
+    @Test func isInsideCacheMatchesActualTempdir() throws {
+        let dir = try TempStore.makeDir(sourceName: "filter.zip")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let inside = dir.appendingPathComponent("payload.dmp")
+
+        #expect(TempStore.isInsideCache(dir))
+        #expect(TempStore.isInsideCache(inside))
+    }
+
+    @Test func isInsideCacheRejectsRegularDocuments() {
+        let outside = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Documents/crashes/dump.dmp")
+        #expect(!TempStore.isInsideCache(outside))
+    }
+
+    @Test func isInsideCacheRejectsSiblingWithSharedPrefix() throws {
+        // A directory whose path string shares the cache-root prefix
+        // but is NOT a child must not be filtered. Construct a sibling
+        // by appending characters to the cache root path string itself.
+        let cacheRootPath = TempStore.root().path
+        let sibling = URL(fileURLWithPath: cacheRootPath + "-other-app")
+            .appendingPathComponent("dump.dmp")
+        #expect(!TempStore.isInsideCache(sibling))
+    }
+
+    @Test func isInsideCacheResolvesPrivateVarSymlink() {
+        // On macOS, /var is a symlink to /private/var, and the system
+        // tmp dir often lives under /var/folders/... The cache-root
+        // computation may return one form while a user-supplied URL
+        // may carry the other. Both must compare equal.
+        let cacheRoot = TempStore.root()
+        let path = cacheRoot.path
+        let inside = cacheRoot.appendingPathComponent("zip-test/dump.dmp")
+
+        let toggled: URL
+        if path.hasPrefix("/private/var/") {
+            // /private/var/X/.../zip-test → /var/X/.../zip-test
+            let stripped = String(path.dropFirst("/private".count))
+            toggled = URL(fileURLWithPath: stripped)
+                .appendingPathComponent("zip-test/dump.dmp")
+        } else if path.hasPrefix("/var/") {
+            toggled = URL(fileURLWithPath: "/private" + path)
+                .appendingPathComponent("zip-test/dump.dmp")
+        } else {
+            // Cache root isn't under /var on this host — exercise the
+            // standardized-path code path with the unchanged form so
+            // the test still asserts something useful instead of
+            // silently passing.
+            toggled = inside
+        }
+
+        #expect(TempStore.isInsideCache(toggled),
+                "expected toggled-symlink form '\(toggled.path)' to be inside cache '\(path)'")
+    }
+
     @Test func cleanupAgedUsesInjectableClock() async throws {
         // Verify TempStore.now is overridable — exercise the cutoff via the
         // clock, not via real wall-clock elapsed time.

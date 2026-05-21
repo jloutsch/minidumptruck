@@ -8,8 +8,7 @@ import MiniDumpTruckCore
 /// files and surface a generic "file not found" error.
 private final class FilteringDocumentController: NSDocumentController {
     override func noteNewRecentDocumentURL(_ url: URL) {
-        let cacheRoot = TempStore.root().path
-        if url.path.hasPrefix(cacheRoot) {
+        if TempStore.isInsideCache(url) {
             return  // do not record tempfiles in Recent Documents
         }
         super.noteNewRecentDocumentURL(url)
