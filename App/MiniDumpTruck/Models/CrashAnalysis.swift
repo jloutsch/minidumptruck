@@ -40,16 +40,52 @@ public struct StackFrame: Identifiable, Sendable, Codable {
     public let frameType: FrameType
     public let confidence: FrameConfidence
 
-    public enum FrameType: String, Sendable, Codable {
+    public enum FrameType: String, Sendable, Codable, CaseIterable {
         case instructionPointer  // RIP - current execution
         case returnAddress       // From stack scan
         case framePointer        // From RBP chain
+
+        /// Compact label shown next to the role icon (e.g. on stack rows).
+        public var shortLabel: String {
+            switch self {
+            case .instructionPointer: return "IP"
+            case .returnAddress: return "Ret"
+            case .framePointer: return "FP"
+            }
+        }
+
+        /// VoiceOver-friendly description of the frame role.
+        public var accessibilityLabel: String {
+            switch self {
+            case .instructionPointer: return "Instruction pointer"
+            case .returnAddress: return "Return address"
+            case .framePointer: return "Frame pointer"
+            }
+        }
     }
 
-    public enum FrameConfidence: String, Sendable, Codable {
+    public enum FrameConfidence: String, Sendable, Codable, CaseIterable {
         case high    // From RBP chain or known call instruction
         case medium  // Return address in module text section
         case low     // Address in module range but uncertain
+
+        /// Single-letter glyph for the per-frame confidence pill.
+        public var shortLabel: String {
+            switch self {
+            case .high: return "H"
+            case .medium: return "M"
+            case .low: return "L"
+            }
+        }
+
+        /// VoiceOver-friendly description.
+        public var accessibilityLabel: String {
+            switch self {
+            case .high: return "High confidence"
+            case .medium: return "Medium confidence"
+            case .low: return "Low confidence"
+            }
+        }
     }
 
     public var displayAddress: String {

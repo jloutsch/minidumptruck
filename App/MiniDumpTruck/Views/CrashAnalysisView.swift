@@ -248,13 +248,15 @@ struct CrashAnalysisView: View {
                 // Long symbolicated C++ template names (200+ chars) would
                 // otherwise push the row off-screen with no horizontal
                 // scroll. Middle truncation keeps the module! prefix and
-                // the +0xNN offset both visible.
+                // the +0xNN offset both visible. `.textSelection` is set
+                // on the parent ScrollView so drag-to-select works across
+                // multiple frames; do not add it per-row.
                 Text(frame.displayAddress)
                     .fontDesign(.monospaced)
                     .foregroundStyle(frame.module != nil ? .primary : .secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .textSelection(.enabled)
+                    .help(frame.displayAddress)
 
                 if let module = frame.module {
                     HStack(spacing: 4) {
@@ -283,63 +285,49 @@ struct CrashAnalysisView: View {
 
     // MARK: - Helpers
 
+    @ScaledMetric(relativeTo: .caption2) private var frameTypeIndicatorWidth: CGFloat = 44
+
     private func frameTypeIndicator(_ type: StackFrame.FrameType) -> some View {
-        // Color alone fails colorblind users; pair the icon with a short
-        // text label so the frame role is readable without color, and
-        // give VoiceOver a sensible label instead of the SF Symbol name.
+        // Display strings live on the model (see StackFrame.FrameType
+        // extensions in Core) so tests can guard against label swaps.
         let icon: String
         let color: Color
-        let shortLabel: String
-        let voiceOverLabel: String
         switch type {
-        case .instructionPointer:
-            icon = "arrow.right.circle.fill"
-            color = .red
-            shortLabel = "IP"
-            voiceOverLabel = "Instruction pointer"
-        case .framePointer:
-            icon = "arrow.up.circle.fill"
-            color = .green
-            shortLabel = "FP"
-            voiceOverLabel = "Frame pointer"
-        case .returnAddress:
-            icon = "circle.fill"
-            color = .blue
-            shortLabel = "Ret"
-            voiceOverLabel = "Return address"
+        case .instructionPointer: icon = "arrow.right.circle.fill"; color = .red
+        case .framePointer:       icon = "arrow.up.circle.fill";    color = .green
+        case .returnAddress:      icon = "circle.fill";              color = .blue
         }
 
         return HStack(spacing: 4) {
             Image(systemName: icon)
                 .foregroundStyle(color)
-            Text(shortLabel)
+            Text(type.shortLabel)
                 .font(.caption2)
                 .fontWeight(.medium)
                 .foregroundStyle(.secondary)
         }
-        .frame(width: 44, alignment: .leading)
+        .frame(minWidth: frameTypeIndicatorWidth, alignment: .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(voiceOverLabel)
+        .accessibilityLabel(type.accessibilityLabel)
     }
 
     private func confidenceIndicator(_ confidence: StackFrame.FrameConfidence) -> some View {
-        let text: String
+        // Distinct SF Symbol per state so colorblind users (deuteranopia
+        // hits the green/orange pair particularly hard) get shape
+        // redundancy beyond color: ✓ for high, = for medium, ? for low.
+        let icon: String
         let color: Color
-        let voiceOverLabel: String
         switch confidence {
-        case .high:   text = "H"; color = .green;  voiceOverLabel = "High confidence"
-        case .medium: text = "M"; color = .orange; voiceOverLabel = "Medium confidence"
-        case .low:    text = "L"; color = .gray;   voiceOverLabel = "Low confidence"
+        case .high:   icon = "checkmark.circle.fill";   color = .green
+        case .medium: icon = "equal.circle.fill";        color = .orange
+        case .low:    icon = "questionmark.circle.fill"; color = .gray
         }
 
-        return Text(text)
-            .font(.caption2)
-            .fontWeight(.bold)
+        return Image(systemName: icon)
+            .symbolRenderingMode(.hierarchical)
             .foregroundStyle(color)
-            .frame(width: 16, height: 16)
-            .background(color.opacity(0.2))
-            .clipShape(Circle())
-            .accessibilityLabel(voiceOverLabel)
+            .imageScale(.medium)
+            .accessibilityLabel(confidence.accessibilityLabel)
     }
 
     private func confidenceColor(_ confidence: AnalysisConfidence) -> Color {
