@@ -79,24 +79,23 @@ struct AnalyzeCommand: AsyncParsableCommand {
 
         if !summary {
             print("")  // Clear progress line
-            for result in results {
-                guard let dump = result.dump else { continue }
-                print("")
-                let report = TextReporter.generateReport(
-                    from: dump,
-                    analysis: result.analysis,
-                    fileName: result.fileName,
-                    verbose: verbose
-                )
-                print(report)
-            }
         }
-
-        for result in results where result.dump == nil {
-            let reason = result.error ?? "unknown error"
-            let line = "\(result.fileName): \(reason)\n"
-            if let data = line.data(using: .utf8) {
-                FileHandle.standardError.write(data)
+        for result in results {
+            switch result.outcome {
+            case .success(let dump, let analysis):
+                if !summary {
+                    print("")
+                    let report = TextReporter.generateReport(
+                        from: dump,
+                        analysis: analysis,
+                        fileName: result.fileName,
+                        verbose: verbose
+                    )
+                    print(report)
+                }
+            case .failure(let reason):
+                let line = "\(result.fileName): \(reason)\n"
+                FileHandle.standardError.write(Data(line.utf8))
             }
         }
 
@@ -105,6 +104,9 @@ struct AnalyzeCommand: AsyncParsableCommand {
 
         if batchSummary.crashesDetected > 0 {
             throw ExitCode(2)
+        }
+        if batchSummary.failedParses > 0 {
+            throw ExitCode(1)
         }
     }
 

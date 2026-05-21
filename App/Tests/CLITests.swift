@@ -183,6 +183,31 @@ struct CLITests {
         #expect(result.stderr.contains("File or directory not found"))
     }
 
+    @Test func analyzeDirectoryWithCorruptFileEmitsStderrLine() throws {
+        let good = Self.testFile("test.dmp")
+        try #require(FileManager.default.fileExists(atPath: good.path))
+
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-test-mixed-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        try FileManager.default.copyItem(at: good, to: tmpDir.appendingPathComponent("good.dmp"))
+        let badName = "corrupt.dmp"
+        try Data(repeating: 0x41, count: 64).write(to: tmpDir.appendingPathComponent(badName))
+
+        let result = try Self.runCLI("analyze", "--summary", tmpDir.path)
+
+        #expect(result.stdout.contains("Total files:"))
+        #expect(result.stdout.contains("Failed to parse: 1"))
+        #expect(result.stderr.contains(badName))
+        // Reason should be present after "<file>: " — non-empty content.
+        let stderrLine = result.stderr.split(separator: "\n").first { $0.hasPrefix(badName + ":") }
+        let line = try #require(stderrLine)
+        let reason = line.dropFirst(badName.count + 1).trimmingCharacters(in: .whitespaces)
+        #expect(!reason.isEmpty)
+    }
+
     @Test func analyzeDirectoryWithNoDmpFiles() throws {
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-test-empty-\(UUID().uuidString)")

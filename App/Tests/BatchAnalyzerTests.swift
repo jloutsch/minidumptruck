@@ -22,6 +22,16 @@ struct BatchAnalyzerTests {
         URL(fileURLWithPath: testDataPath).appendingPathComponent(name)
     }
 
+    private static func isSuccess(_ result: BatchResult) -> Bool {
+        if case .success = result.outcome { return true }
+        return false
+    }
+
+    private static func isFailure(_ result: BatchResult) -> Bool {
+        if case .failure = result.outcome { return true }
+        return false
+    }
+
     // MARK: - Single File Tests
 
     @Test func analyzeSingleFile() async throws {
@@ -52,9 +62,11 @@ struct BatchAnalyzerTests {
         let (results, _) = await BatchAnalyzer.analyze(files: [url])
 
         let result = try #require(results.first)
-        let dump = try #require(result.dump)
+        guard case .success(let dump, _) = result.outcome else {
+            Issue.record("expected success outcome")
+            return
+        }
         #expect(dump.streamDirectory.entries.count > 0)
-        #expect(result.error == nil)
     }
 
     @Test func resultContainsAnalysis() async throws {
@@ -63,11 +75,14 @@ struct BatchAnalyzerTests {
 
         let (results, _) = await BatchAnalyzer.analyze(files: [url])
 
-        // Analysis may be nil if no exception is present
         let result = try #require(results.first)
-        let dump = try #require(result.dump)
+        guard case .success(let dump, let analysis) = result.outcome else {
+            Issue.record("expected success outcome")
+            return
+        }
+        // Analysis may be nil if no exception is present
         if dump.exception != nil {
-            #expect(result.analysis != nil)
+            #expect(analysis != nil)
         }
     }
 
@@ -85,7 +100,8 @@ struct BatchAnalyzerTests {
 
         #expect(results.count == dmpFiles.count)
         #expect(summary.totalFiles == dmpFiles.count)
-        let parsed = results.filter { $0.dump != nil }.count
+        let parsed = results.filter(Self.isSuccess).count
+        #expect(parsed > 0, "expected at least one fixture .dmp to parse successfully")
         #expect(summary.successfulParses == parsed)
         #expect(summary.failedParses == dmpFiles.count - parsed)
     }
@@ -98,10 +114,12 @@ struct BatchAnalyzerTests {
 
         #expect(results.count == 1)
         let result = try #require(results.first)
-        #expect(result.dump == nil)
-        #expect(result.analysis == nil)
-        #expect(result.error != nil)
         #expect(result.fileName == fakeFile.lastPathComponent)
+        guard case .failure(let reason) = result.outcome else {
+            Issue.record("expected failure outcome")
+            return
+        }
+        #expect(!reason.isEmpty)
         #expect(summary.totalFiles == 1)
         #expect(summary.failedParses == 1)
         #expect(summary.successfulParses == 0)
@@ -120,12 +138,49 @@ struct BatchAnalyzerTests {
         #expect(summary.failedParses == 1)
 
         let badResult = try #require(results.first { $0.fileName == bad.lastPathComponent })
-        #expect(badResult.dump == nil)
-        #expect(badResult.error != nil)
+        guard case .failure(let reason) = badResult.outcome else {
+            Issue.record("expected failure outcome for bad file")
+            return
+        }
+        #expect(!reason.isEmpty)
 
         let goodResult = try #require(results.first { $0.fileName == good.lastPathComponent })
-        #expect(goodResult.dump != nil)
-        #expect(goodResult.error == nil)
+        #expect(Self.isSuccess(goodResult))
+    }
+
+    @Test func corruptFileProducesErrorResult() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("batch-corrupt-\(UUID().uuidString).dmp")
+        try Data(repeating: 0x41, count: 64).write(to: tmp)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let (results, summary) = await BatchAnalyzer.analyze(files: [tmp])
+
+        #expect(results.count == 1)
+        let result = try #require(results.first)
+        guard case .failure(let reason) = result.outcome else {
+            Issue.record("expected failure outcome for corrupt file")
+            return
+        }
+        #expect(!reason.isEmpty)
+        #expect(summary.failedParses == 1)
+        #expect(summary.successfulParses == 0)
+    }
+
+    @Test func concurrencyThrottlingWithMixedOutcomes() async throws {
+        let good = Self.testFile("test.dmp")
+        try #require(FileManager.default.fileExists(atPath: good.path))
+        let bad1 = URL(fileURLWithPath: "/tmp/missing-a-\(UUID().uuidString).dmp")
+        let bad2 = URL(fileURLWithPath: "/tmp/missing-b-\(UUID().uuidString).dmp")
+
+        // 5 files, maxConcurrency=2: exercises the seed-then-drain refill path
+        // with failures arriving while other tasks are still running.
+        let files = [good, bad1, good, bad2, good]
+        let (results, summary) = await BatchAnalyzer.analyze(files: files, maxConcurrency: 2)
+
+        #expect(results.count == 5)
+        #expect(summary.successfulParses == 3)
+        #expect(summary.failedParses == 2)
     }
 
     // MARK: - Summary Tests
@@ -136,7 +191,11 @@ struct BatchAnalyzerTests {
 
         let (results, summary) = await BatchAnalyzer.analyze(files: [url])
 
-        let hasCrash = results.first?.dump?.exception != nil
+        let first = try #require(results.first)
+        var hasCrash = false
+        if case .success(let dump, _) = first.outcome, dump.exception != nil {
+            hasCrash = true
+        }
         if hasCrash {
             #expect(summary.crashesDetected > 0)
         } else {

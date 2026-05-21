@@ -1,18 +1,21 @@
 import Foundation
 
-/// Result of analyzing a single dump file. Failure produces a result with
-/// `dump == nil` and `error` populated, so callers see every input file.
+/// Outcome of analyzing a single dump file. Success carries the parsed
+/// dump and the analysis; failure carries a human-readable reason.
+public enum BatchOutcome: Sendable {
+    case success(ParsedMinidump, analysis: CrashAnalysis?)
+    case failure(reason: String)
+}
+
+/// Result of analyzing a single dump file. Every input file produces a
+/// result.
 public struct BatchResult: Sendable {
     public let fileName: String
-    public let dump: ParsedMinidump?
-    public let analysis: CrashAnalysis?
-    public let error: String?
+    public let outcome: BatchOutcome
 
-    public init(fileName: String, dump: ParsedMinidump?, analysis: CrashAnalysis?, error: String? = nil) {
+    public init(fileName: String, outcome: BatchOutcome) {
         self.fileName = fileName
-        self.dump = dump
-        self.analysis = analysis
-        self.error = error
+        self.outcome = outcome
     }
 }
 
@@ -98,8 +101,8 @@ public struct BatchAnalyzer: Sendable {
         return (results, summary)
     }
 
-    /// Analyze a single file. Always returns a `BatchResult`; on failure,
-    /// `dump` is nil and `error` carries a human-readable reason.
+    /// Analyze a single file. Always returns a `BatchResult` — success or
+    /// `.failure` with a human-readable reason.
     private static func analyzeFile(_ url: URL) async -> BatchResult {
         let fileName = url.lastPathComponent
         do {
@@ -107,9 +110,9 @@ public struct BatchAnalyzer: Sendable {
             let dump = try MinidumpParser.parse(data: data)
             let analyzer = CrashAnalyzer(dump: dump)
             let analysis = analyzer.analyze()
-            return BatchResult(fileName: fileName, dump: dump, analysis: analysis)
+            return BatchResult(fileName: fileName, outcome: .success(dump, analysis: analysis))
         } catch {
-            return BatchResult(fileName: fileName, dump: nil, analysis: nil, error: error.localizedDescription)
+            return BatchResult(fileName: fileName, outcome: .failure(reason: error.localizedDescription))
         }
     }
 
@@ -121,14 +124,14 @@ public struct BatchAnalyzer: Sendable {
         var exceptionCounts: [UInt32: Int] = [:]
 
         for result in results {
-            guard let dump = result.dump else { continue }
+            guard case .success(let dump, let analysis) = result.outcome else { continue }
             successCount += 1
 
             if dump.exception != nil {
                 crashCount += 1
             }
 
-            if let blame = result.analysis?.blameModule {
+            if let blame = analysis?.blameModule {
                 moduleCounts[blame.module.shortName, default: 0] += 1
             }
 
