@@ -217,7 +217,7 @@ struct CrashAnalysisView: View {
     }
 
     private func stackSection(_ frames: [StackFrame]) -> some View {
-        GroupBox("Call Stack (\(frames.count) frames)") {
+        GroupBox {
             VStack(alignment: .leading, spacing: 0) {
                 stackHeaderRow
 
@@ -226,6 +226,14 @@ struct CrashAnalysisView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(frames.enumerated()), id: \.element.id) { index, frame in
                         stackFrameRow(frame, index: index)
+                            .contextMenu {
+                                Button("Copy this frame") {
+                                    copyToClipboard(frame.displayAddress)
+                                }
+                                Button("Copy entire stack") {
+                                    copyToClipboard(stackText(frames))
+                                }
+                            }
 
                         if index < frames.count - 1 {
                             Divider()
@@ -233,21 +241,51 @@ struct CrashAnalysisView: View {
                     }
                 }
             }
+        } label: {
+            HStack(spacing: 8) {
+                Text("Call Stack (\(frames.count) frames)")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    copyToClipboard(stackText(frames))
+                } label: {
+                    Label("Copy stack", systemImage: "doc.on.doc")
+                        .labelStyle(.titleAndIcon)
+                }
+                .controlSize(.small)
+                .help("Copy all \(frames.count) frames to the clipboard. SwiftUI doesn't support drag-select across stack rows; use this or right-click a row to copy.")
+            }
         }
     }
 
-    /// Column header for the call-stack list so the right-column icons
-    /// (frame type, confidence) read as labeled columns rather than
-    /// floating glyphs.
+    private func stackText(_ frames: [StackFrame]) -> String {
+        frames.enumerated().map { index, frame in
+            String(format: "%02d  %@  %@", index, frame.frameType.shortLabel, frame.displayAddress)
+        }.joined(separator: "\n")
+    }
+
+    private func copyToClipboard(_ s: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(s, forType: .string)
+    }
+
+    /// Column header for the call-stack list. Each header carries a
+    /// .help() tooltip explaining the concept — DFIR responders new to
+    /// the tool can hover to learn what the column means rather than
+    /// guess from the label.
     private var stackHeaderRow: some View {
         HStack(alignment: .firstTextBaseline) {
             Text("#")
                 .frame(width: 24, alignment: .leading)
+                .help("Frame index in the call stack — 0 is the topmost (faulting) frame, higher numbers are callers further down the stack.")
             Text("Role")
                 .frame(minWidth: frameTypeIndicatorWidth, alignment: .leading)
+                .help("How this frame was recovered: IP = instruction pointer (the exact crashing address), FP = recovered via the RBP frame-pointer chain (most reliable), Ret = recovered by scanning the stack for return addresses (heuristic, may include false positives).")
             Text("Frame")
+                .help("Module name + function/offset where this frame was executing.")
             Spacer()
             Text("Conf.")
+                .help("Confidence that this frame is real and in the right position: High = recovered from a reliable source (RBP chain or known call instruction). Medium = return address landed inside a module's text section. Low = address falls in a module range but the frame may be a stack scan false positive.")
         }
         .font(.caption2.smallCaps())
         .fontWeight(.semibold)
@@ -331,9 +369,20 @@ struct CrashAnalysisView: View {
                 .foregroundStyle(color)
         }
         .frame(minWidth: frameTypeIndicatorWidth, alignment: .leading)
-        .help(type.accessibilityLabel)
+        .help(frameTypeHelpText(type))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(type.accessibilityLabel)
+    }
+
+    private func frameTypeHelpText(_ type: StackFrame.FrameType) -> String {
+        switch type {
+        case .instructionPointer:
+            return "Instruction pointer — the exact CPU address where execution was when the crash occurred (top of the stack)."
+        case .framePointer:
+            return "Frame pointer — recovered by walking the RBP chain. Most reliable frame source: each entry was definitely a real call."
+        case .returnAddress:
+            return "Return address — recovered by scanning the stack for addresses that fall inside a module's executable region. Heuristic: may include stale or unrelated addresses."
+        }
     }
 
     private func confidenceIndicator(_ confidence: StackFrame.FrameConfidence) -> some View {
@@ -352,9 +401,20 @@ struct CrashAnalysisView: View {
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(color)
             .imageScale(.medium)
-            .help(confidence.accessibilityLabel)
+            .help(confidenceHelpText(confidence))
             .accessibilityLabel(confidence.accessibilityLabel)
             .accessibilityAddTraits(.isImage)
+    }
+
+    private func confidenceHelpText(_ confidence: StackFrame.FrameConfidence) -> String {
+        switch confidence {
+        case .high:
+            return "High confidence — frame recovered from a reliable source (RBP chain or a known call instruction). Trust this frame's position."
+        case .medium:
+            return "Medium confidence — return address landed inside a module's text section. Likely real, but the position relative to other frames may be off."
+        case .low:
+            return "Low confidence — address falls in a module range but the frame may be a stack-scan false positive. Cross-reference with adjacent frames before drawing conclusions."
+        }
     }
 
     private func confidenceColor(_ confidence: AnalysisConfidence) -> Color {
