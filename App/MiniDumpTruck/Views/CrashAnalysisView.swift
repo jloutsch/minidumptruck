@@ -218,18 +218,42 @@ struct CrashAnalysisView: View {
 
     private func stackSection(_ frames: [StackFrame]) -> some View {
         GroupBox("Call Stack (\(frames.count) frames)") {
-            // LazyVStack: 60-200 frame stacks (deadlocks, deep recursion)
-            // would otherwise render every row eagerly and stall scrolling.
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(frames.enumerated()), id: \.element.id) { index, frame in
-                    stackFrameRow(frame, index: index)
+            VStack(alignment: .leading, spacing: 0) {
+                stackHeaderRow
 
-                    if index < frames.count - 1 {
-                        Divider()
+                // LazyVStack: 60-200 frame stacks (deadlocks, deep recursion)
+                // would otherwise render every row eagerly and stall scrolling.
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(frames.enumerated()), id: \.element.id) { index, frame in
+                        stackFrameRow(frame, index: index)
+
+                        if index < frames.count - 1 {
+                            Divider()
+                        }
                     }
                 }
             }
         }
+    }
+
+    /// Column header for the call-stack list so the right-column icons
+    /// (frame type, confidence) read as labeled columns rather than
+    /// floating glyphs.
+    private var stackHeaderRow: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("#")
+                .frame(width: 24, alignment: .leading)
+            Text("Role")
+                .frame(minWidth: frameTypeIndicatorWidth, alignment: .leading)
+            Text("Frame")
+            Spacer()
+            Text("Conf.")
+        }
+        .font(.caption2.smallCaps())
+        .fontWeight(.semibold)
+        .foregroundStyle(.secondary)
+        .padding(.vertical, 4)
+        .padding(.bottom, 2)
     }
 
     private func stackFrameRow(_ frame: StackFrame, index: Int) -> some View {
@@ -245,17 +269,17 @@ struct CrashAnalysisView: View {
 
             // Address and module
             VStack(alignment: .leading, spacing: 2) {
-                // Long symbolicated C++ template names (200+ chars) would
-                // otherwise push the row off-screen with no horizontal
-                // scroll. Middle truncation keeps the module! prefix and
-                // the +0xNN offset both visible. `.textSelection` is set
-                // on the parent ScrollView so drag-to-select works across
-                // multiple frames; do not add it per-row.
+                // Middle truncation keeps the module! prefix and the
+                // +0xNN offset both visible on long C++ template names.
+                // Per-row .textSelection is required for drag-to-select
+                // — verified empirically: parent ScrollView .textSelection
+                // does not propagate to nested LazyVStack rows.
                 Text(frame.displayAddress)
                     .fontDesign(.monospaced)
                     .foregroundStyle(frame.module != nil ? .primary : .secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .textSelection(.enabled)
                     .help(frame.displayAddress)
 
                 if let module = frame.module {
@@ -302,11 +326,12 @@ struct CrashAnalysisView: View {
             Image(systemName: icon)
                 .foregroundStyle(color)
             Text(type.shortLabel)
-                .font(.caption2)
-                .fontWeight(.medium)
-                .foregroundStyle(.secondary)
+                .font(.caption.monospaced())
+                .fontWeight(.semibold)
+                .foregroundStyle(color)
         }
         .frame(minWidth: frameTypeIndicatorWidth, alignment: .leading)
+        .help(type.accessibilityLabel)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(type.accessibilityLabel)
     }
@@ -327,7 +352,9 @@ struct CrashAnalysisView: View {
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(color)
             .imageScale(.medium)
+            .help(confidence.accessibilityLabel)
             .accessibilityLabel(confidence.accessibilityLabel)
+            .accessibilityAddTraits(.isImage)
     }
 
     private func confidenceColor(_ confidence: AnalysisConfidence) -> Color {
