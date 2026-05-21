@@ -10,6 +10,11 @@ struct SummaryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                // Verdict card — top slot, always shows something
+                verdictCard
+
+                Divider()
+
                 // Header
                 headerSection
 
@@ -27,11 +32,8 @@ struct SummaryView: View {
                     Divider()
                 }
 
-                // Crash diagnosis (if analysis available)
-                if isAnalyzing {
-                    ProgressView("Analyzing crash...")
-                        .frame(maxWidth: .infinity)
-                } else if let analysis = analysis {
+                // Crash diagnosis full detail (if analysis available)
+                if let analysis = analysis {
                     diagnosisSection(analysis)
                     Divider()
                 }
@@ -52,6 +54,107 @@ struct SummaryView: View {
         .task {
             await runAnalysis()
         }
+    }
+
+    @ViewBuilder
+    private var verdictCard: some View {
+        if isAnalyzing {
+            verdictCardContainer(accent: .secondary) {
+                HStack(spacing: 12) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Analyzing crash…")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } else if let analysis = analysis {
+            verdictCardAnalyzed(analysis)
+        } else if document.exception == nil {
+            verdictCardContainer(accent: .green) {
+                Label("No exception recorded in this dump", systemImage: "checkmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.green)
+            }
+        } else if let exception = document.exception {
+            // Defensive: exception exists but analysis hasn't run yet (shouldn't
+            // happen — `.task` fires on appear — but degrade gracefully).
+            verdictCardContainer(accent: .red) {
+                Label(exception.exceptionName, systemImage: "exclamationmark.triangle.fill")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private func verdictCardAnalyzed(_ analysis: CrashAnalysis) -> some View {
+        verdictCardContainer(accent: .red) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    if let exception = document.exception {
+                        Label(exception.exceptionName, systemImage: "exclamationmark.triangle.fill")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.red)
+                    } else {
+                        Label("Crash Diagnosis", systemImage: "wand.and.stars")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                    }
+                    Spacer()
+                    Text(analysis.confidence.displayName + " confidence")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundStyle(confidenceColor(analysis.confidence))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(confidenceColor(analysis.confidence).opacity(0.15))
+                        .clipShape(Capsule())
+                }
+
+                if let blame = analysis.blameModule {
+                    HStack(spacing: 6) {
+                        Text(blame.module.shortName)
+                            .font(.title3)
+                            .fontWeight(.medium)
+                            .fontDesign(.monospaced)
+                            .foregroundStyle(.blue)
+                        Text("—")
+                            .foregroundStyle(.secondary)
+                        Text(blame.reasonDescription)
+                            .font(.callout)
+                    }
+                }
+
+                Text(analysis.crashSummary.recommendation)
+                    .font(.callout)
+
+                Button("View full analysis") {
+                    viewModel.selectedSection = .analyze
+                }
+                .buttonStyle(.link)
+                .font(.callout)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func verdictCardContainer<Content: View>(
+        accent: Color,
+        @ViewBuilder _ content: () -> Content
+    ) -> some View {
+        HStack(spacing: 0) {
+            Rectangle()
+                .fill(accent)
+                .frame(width: 4)
+            GroupBox {
+                content()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     private func runAnalysis() async {
