@@ -208,6 +208,42 @@ struct CLITests {
         #expect(!reason.isEmpty)
     }
 
+    @Test func analyzeStderrSanitizesAnsiEscapeInFilename() throws {
+        // Filename containing an ANSI escape sequence (clear-screen).
+        // The CLI must not echo the raw escape to stderr — it would let
+        // an attacker corrupt the terminal output of anyone running
+        // batch analysis on a directory of dumps.
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-test-ansi-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let evilName = "evil\u{001B}[2J.dmp"
+        try Data(repeating: 0x41, count: 64).write(to: tmpDir.appendingPathComponent(evilName))
+
+        let result = try Self.runCLI("analyze", "--summary", tmpDir.path)
+
+        #expect(!result.stderr.contains("\u{001B}"))
+
+        // Assert the full sanitized line shape: "<sanitized-name>: <reason>"
+        // The escape (0x1B) is stripped but its printable trailer ("[2J")
+        // survives — confirming we strip only the control char, not
+        // legitimate text the user named the file with.
+        let sanitizedName = "evil[2J.dmp"
+        let line = result.stderr
+            .split(separator: "\n")
+            .first { $0.hasPrefix(sanitizedName + ":") }
+        let lineStr = try #require(line.map(String.init),
+                                   "expected stderr line beginning with '\(sanitizedName):'")
+        let reason = lineStr.dropFirst(sanitizedName.count + 1).trimmingCharacters(in: .whitespaces)
+        #expect(!reason.isEmpty)
+        // Reason should match the sanitized vocabulary, not raw NSError text
+        let vocab = ["file not found", "permission denied", "file unreadable or corrupt",
+                     "file too large", "I/O error", "Invalid minidump signature"]
+        #expect(vocab.contains { reason.contains($0) },
+                "reason '\(reason)' should match known sanitized vocabulary")
+    }
+
     @Test func analyzeDirectoryWithNoDmpFiles() throws {
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-test-empty-\(UUID().uuidString)")
