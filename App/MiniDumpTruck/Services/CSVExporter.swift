@@ -167,8 +167,18 @@ public struct CSVExporter: Sendable {
 
     // MARK: - Utilities
 
-    private static func escapeCSV(_ field: String) -> String {
-        var result = field
+    // Internal (not private) so tests can verify the chokepoint
+    // directly with crafted input.
+    static func escapeCSV(_ field: String) -> String {
+        // Strip control chars, bidi marks, zero-width chars BEFORE
+        // CSV-specific handling. Without this, a dump-sourced module
+        // name containing \x1b[2J or U+202E ships into the CSV file
+        // and triggers the embedded sequence when the file is cat'd
+        // or opened in a terminal-aware viewer. The sanitizer also
+        // strips \n and \r, so a crafted field can no longer break
+        // out of its row by embedding line breaks — the existing
+        // RFC-4180 quoting below becomes a defense-in-depth layer.
+        var result = field.sanitizedForOutput()
 
         // CSV injection protection: prefix formula-triggering characters with a single quote
         // to prevent Excel/Sheets from interpreting fields as formulas
@@ -176,7 +186,11 @@ public struct CSVExporter: Sendable {
             result = "'" + result
         }
 
-        if result.contains(",") || result.contains("\"") || result.contains("\n") || result.contains("\r") {
+        // TAB is preserved by sanitizedForOutput (legitimate in TextReporter)
+        // but a field containing TAB will split across columns in TSV-aware
+        // readers (Excel Text-to-Columns, awk's default FS, etc.). Quote
+        // such fields so they stay as a single column in any consumer.
+        if result.contains(",") || result.contains("\"") || result.contains("\n") || result.contains("\r") || result.contains("\t") {
             return "\"" + result.replacingOccurrences(of: "\"", with: "\"\"") + "\""
         }
         return result

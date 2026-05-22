@@ -420,8 +420,19 @@ public struct HTMLExporter: Sendable {
 
     // MARK: - Utilities
 
-    private static func escapeHTML(_ string: String) -> String {
+    // Internal (not private) so tests can verify the chokepoint
+    // directly with crafted input. Production code reaches this via
+    // every field interpolation in the report builders above.
+    static func escapeHTML(_ string: String) -> String {
+        // Strip ANSI escapes, null bytes, bidi formatting marks, zero-
+        // width chars BEFORE HTML entity encoding. Without this,
+        // dump-sourced module/version/thread name fields would ship
+        // raw \x1b / \u{202E} into the HTML output — terminal-aware
+        // viewers (less, cat <file.html>) would interpret escapes,
+        // and rendered HTML can be visually misleading via RTL
+        // overrides. Entity-encoding does not touch these chars.
         string
+            .sanitizedForOutput()
             .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
@@ -441,6 +452,12 @@ public struct HTMLExporter: Sendable {
         ByteCountFormatter.string(fromByteCount: Int64(clamping: size), countStyle: .file)
     }
 
+    /// Render a key/value row in a `<table>`. **Asymmetric contract**:
+    /// `label` is HTML-escaped automatically; `value` is inserted RAW so
+    /// callers can pass intentional inline markup (`<code>`, `<strong>`,
+    /// `<a href>`, etc.). Any dump-sourced string passed as `value` MUST
+    /// be wrapped in `escapeHTML(...)` at the call site — every existing
+    /// caller does so. Adding a new call site? Read this comment.
     private static func tableRow(_ label: String, _ value: String) -> String {
         "<tr><th>\(escapeHTML(label))</th><td>\(value)</td></tr>"
     }
