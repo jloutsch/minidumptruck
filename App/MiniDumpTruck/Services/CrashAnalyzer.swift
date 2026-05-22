@@ -12,10 +12,11 @@ public struct CrashAnalyzer: Sendable {
     private let memory: DumpMemoryReader
     private let symbolicator: Symbolicator
 
-    public init(dump: ParsedMinidump) {
+    public init(dump: ParsedMinidump,
+                pdbTables: [UInt64: PDBSymbolTable] = [:]) {
         self.dump = dump
         self.memory = DumpMemoryReader(dump: dump)
-        self.symbolicator = Symbolicator(dump: dump)
+        self.symbolicator = Symbolicator(dump: dump, pdbTables: pdbTables)
     }
 
     /// Analyze the crash and return results
