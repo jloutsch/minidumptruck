@@ -71,6 +71,30 @@ class DumpViewModel {
     // Reference to document for address lookups (set by ContentView)
     weak var documentReference: MinidumpDocumentWrapper?
 
+    /// Server-fetched PDB public symbol tables, keyed by module base
+    /// address. Empty until `loadSymbols(for:)` finishes. Views that
+    /// run `CrashAnalyzer` pass this dict in so the analyzer's
+    /// symbolicator can resolve real function names.
+    var pdbTables: [UInt64: PDBSymbolTable] = [:]
+
+    /// True while a `SymbolicationService` is currently downloading
+    /// and parsing PDBs for the open dump. Views can show a spinner
+    /// or a "Resolving symbols..." note.
+    var isResolvingSymbols: Bool = false
+
+    /// Kick off async symbol resolution for the given dump. Idempotent
+    /// — concurrent calls are coalesced via a single token. Failures
+    /// (network, malformed PDB) are silent: the dict just stays empty
+    /// and views fall back to slice-1 (PE export) symbols or
+    /// module+offset.
+    func loadSymbols(for dump: ParsedMinidump, service: SymbolicationService) async {
+        guard !isResolvingSymbols else { return }
+        isResolvingSymbols = true
+        let tables = await service.loadSymbols(for: dump)
+        self.pdbTables = tables
+        self.isResolvingSymbols = false
+    }
+
     func selectThread(_ thread: ThreadInfo) {
         selectedSection = .threads
         detailSelection = .thread(thread.id)

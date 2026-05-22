@@ -7,6 +7,12 @@ struct ContentView: View {
     let document: MinidumpDocument
     @State private var viewModel = DumpViewModel()
     @State private var documentWrapper: MinidumpDocumentWrapper?
+    /// Process-wide symbol cache + server. Held in the view so the
+    /// actor's storage survives across re-renders of this dump.
+    @State private var symbolService = SymbolicationService(
+        cache: SymbolCache(),
+        server: SymbolServer()
+    )
 
     var body: some View {
         Group {
@@ -52,6 +58,14 @@ struct ContentView: View {
             // Set up document reference for address lookups
             documentWrapper = MinidumpDocumentWrapper(document: document)
             viewModel.documentReference = documentWrapper
+        }
+        .task(id: document.parsedDump?.header.timeDateStamp) {
+            // Fire off PDB symbol resolution once per opened dump.
+            // `.task(id:)` cancels the in-flight task if the user
+            // switches to a different document, so we don't leak
+            // a fetch when the view's document changes underneath us.
+            guard let dump = document.parsedDump else { return }
+            await viewModel.loadSymbols(for: dump, service: symbolService)
         }
         .onReceive(NotificationCenter.default.publisher(for: .goToAddress)) { _ in
             viewModel.showGoToAddressSheet = true

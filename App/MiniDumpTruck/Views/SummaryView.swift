@@ -81,8 +81,9 @@ struct SummaryView: View {
     private func runAnalysis() async {
         guard let dump = document.parsedDump, dump.exception != nil else { return }
         isAnalyzing = true
+        let tables = viewModel.pdbTables
         let result = await Task.detached(priority: .userInitiated) {
-            CrashAnalyzer(dump: dump).analyze()
+            CrashAnalyzer(dump: dump, pdbTables: tables).analyze()
         }.value
         analysis = result
         isAnalyzing = false
