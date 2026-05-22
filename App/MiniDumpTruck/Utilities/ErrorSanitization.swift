@@ -121,6 +121,13 @@ public extension String {
         if value >= 0xE0100 && value <= 0xE01EF { return true }
         // Tag characters (invisible Unicode tags)
         if value >= 0xE0000 && value <= 0xE007F { return true }
+        // Unicode noncharacters: invalid in interchange per Unicode TR.
+        // Used as anti-forensics markers and known to break XML/HTML
+        // parsers and JSON tooling.
+        if value >= 0xFDD0 && value <= 0xFDEF { return true }
+        // Per-plane noncharacters U+xFFFE / U+xFFFF (planes 0-16).
+        let planeLow = value & 0xFFFF
+        if (planeLow == 0xFFFE || planeLow == 0xFFFF) && value <= 0x10FFFF { return true }
         return false
     }
 

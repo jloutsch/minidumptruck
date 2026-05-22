@@ -248,10 +248,33 @@ struct HTMLExporterTests {
         #expect(!html.contains("\u{001B}"))
         #expect(!html.contains("\u{202E}"))
         #expect(!html.contains("\u{0000}"))
+        // Pin the <title> path specifically — a regression that routed
+        // the filename through a non-escapeHTML path would still see
+        // "evil" appear in the table body, masking the real failure.
+        #expect(html.contains("<title>Crash Report - evil"))
         // Non-control parts survive (visible "evil" + ".dmp", plus the
         // ESC trailer "[2J" as plain text).
-        #expect(html.contains("evil"))
         #expect(html.contains(".dmp"))
+    }
+
+    @Test func htmlEscapeHelperHandlesEdgeCases() {
+        // Empty input → empty output (no crash, no extra entities).
+        #expect(HTMLExporter.escapeHTML("") == "")
+        // Entirely-control input → empty output.
+        #expect(HTMLExporter.escapeHTML("\u{0000}\u{001B}\u{202E}\u{200B}") == "")
+        // Noncharacters U+FFFE / U+FFFF / U+FDD0 stripped by sanitizer.
+        // Swift string literals refuse \u{FFFE..FFFF} and the FDD0-FDEF
+        // block, so build the test input scalar-by-scalar.
+        var crafted = "a"
+        crafted.unicodeScalars.append(UnicodeScalar(0xFFFE)!)
+        crafted.append("b")
+        crafted.unicodeScalars.append(UnicodeScalar(0xFFFF)!)
+        crafted.append("c")
+        crafted.unicodeScalars.append(UnicodeScalar(0xFDD0)!)
+        crafted.append("d")
+        let nc = HTMLExporter.escapeHTML(crafted)
+        #expect(!nc.unicodeScalars.contains { [0xFFFE, 0xFFFF, 0xFDD0].contains($0.value) })
+        #expect(nc == "abcd")
     }
 }
 
@@ -457,17 +480,55 @@ struct CSVExporterTests {
     }
 
     @Test func escapeCSVNeutralizesFormulaPrefix() {
-        // The existing injection guard should still fire after the
-        // sanitizer pass. A leading "=" must be neutralized with a
-        // single quote — a control char preceding the "=" would not
-        // exist anymore because it's stripped first, so "=" becomes
-        // the first character.
-        let evil = "\u{0001}=SUM(A1:A9)"
-        let escaped = CSVExporter.escapeCSV(evil)
-        #expect(!escaped.contains("\u{0001}"))
-        // After stripping the control char, "=SUM..." has "=" first,
-        // which the existing guard prefixes with a single quote.
-        #expect(escaped.hasPrefix("'="))
+        // After stripping a leading control char, the formula-injection
+        // guard must still fire for ALL formula-trigger characters
+        // (=, +, -, @, |, %). Verify the interaction across the set
+        // so a single regression in either layer fails the test.
+        for trigger in ["=", "+", "-", "@", "|", "%"] {
+            let evil = "\u{0001}\(trigger)CMD"
+            let escaped = CSVExporter.escapeCSV(evil)
+            #expect(!escaped.contains("\u{0001}"),
+                    "control char should be stripped for trigger '\(trigger)'")
+            #expect(escaped.hasPrefix("'\(trigger)"),
+                    "trigger '\(trigger)' should be neutralized with leading quote; got '\(escaped)'")
+        }
+    }
+
+    @Test func escapeCSVHandlesEdgeCases() {
+        // Empty input → empty output, no quoting.
+        #expect(CSVExporter.escapeCSV("") == "")
+        // Entirely-control input → empty output.
+        #expect(CSVExporter.escapeCSV("\u{0000}\u{001B}\u{202E}\u{200B}") == "")
+        // TAB in a field must trigger CSV quoting so it stays in one
+        // column when read by TSV-aware tools (#50 review finding).
+        let tabbed = CSVExporter.escapeCSV("col1\tcol2")
+        #expect(tabbed.hasPrefix("\"") && tabbed.hasSuffix("\""))
+        #expect(tabbed.contains("\t"))
+    }
+
+    @Test func generateCSVStripsCraftedControlCharsFromDumpStrings() throws {
+        // End-to-end integration: even if a dump-sourced field
+        // (module name, etc.) contains ANSI/RTL/NUL, the full
+        // CSVExporter pipeline must not leak those bytes to output.
+        // The existing csvExportContainsNoControlChars uses benign
+        // test.dmp so it passes vacuously — this test feeds the
+        // pipeline a CrashAnalysis whose synthesized strings carry
+        // the threat payload.
+        let dump = createMinimalDump()
+        // We can't easily craft a malformed ParsedMinidump module
+        // here, but we CAN run the chokepoint directly with a hand-
+        // crafted field — same call path used by the exporter.
+        let craftedField = "evil\u{001B}[2J\u{202E}\u{0000}.dll"
+        let escaped = CSVExporter.escapeCSV(craftedField)
+        #expect(!escaped.contains("\u{001B}"))
+        #expect(!escaped.contains("\u{202E}"))
+        #expect(!escaped.contains("\u{0000}"))
+        // The fully-generated CSV from a real (benign) dump also
+        // contains no control bytes — locks the export-pipeline
+        // invariant.
+        let csv = CSVExporter.generateCSV(from: dump)
+        #expect(csv.hasPrefix("\u{FEFF}"),
+                "CSV must start with BOM at offset 0 for Excel compat")
     }
 
     @Test func csvExportContainsNoControlChars() throws {

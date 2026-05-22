@@ -452,6 +452,12 @@ public struct HTMLExporter: Sendable {
         ByteCountFormatter.string(fromByteCount: Int64(clamping: size), countStyle: .file)
     }
 
+    /// Render a key/value row in a `<table>`. **Asymmetric contract**:
+    /// `label` is HTML-escaped automatically; `value` is inserted RAW so
+    /// callers can pass intentional inline markup (`<code>`, `<strong>`,
+    /// `<a href>`, etc.). Any dump-sourced string passed as `value` MUST
+    /// be wrapped in `escapeHTML(...)` at the call site — every existing
+    /// caller does so. Adding a new call site? Read this comment.
     private static func tableRow(_ label: String, _ value: String) -> String {
         "<tr><th>\(escapeHTML(label))</th><td>\(value)</td></tr>"
     }

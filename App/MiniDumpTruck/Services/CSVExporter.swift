@@ -186,7 +186,11 @@ public struct CSVExporter: Sendable {
             result = "'" + result
         }
 
-        if result.contains(",") || result.contains("\"") || result.contains("\n") || result.contains("\r") {
+        // TAB is preserved by sanitizedForOutput (legitimate in TextReporter)
+        // but a field containing TAB will split across columns in TSV-aware
+        // readers (Excel Text-to-Columns, awk's default FS, etc.). Quote
+        // such fields so they stay as a single column in any consumer.
+        if result.contains(",") || result.contains("\"") || result.contains("\n") || result.contains("\r") || result.contains("\t") {
             return "\"" + result.replacingOccurrences(of: "\"", with: "\"\"") + "\""
         }
         return result
