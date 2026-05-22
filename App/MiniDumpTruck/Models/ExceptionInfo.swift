@@ -87,24 +87,28 @@ public struct ExceptionInfo: Sendable, Codable {
         self.contextRva = data.readUInt32(at: contextLocOffset + 4)
     }
 
-    /// Test-only memberwise init.
+    /// Test-only memberwise init. `numberOfParameters` is derived from
+    /// `exceptionParameters.count` to preserve the byte-parser's
+    /// invariant that the two stay synchronized, and is clamped to the
+    /// Windows `EXCEPTION_MAXIMUM_PARAMETERS` ceiling of 15.
     internal init(
         threadId: UInt32,
         exceptionCode: UInt32,
         exceptionFlags: UInt32 = 0,
         exceptionRecord: UInt64 = 0,
         exceptionAddress: UInt64 = 0,
-        numberOfParameters: UInt32 = 0,
         exceptionParameters: [UInt64] = [],
         contextDataSize: UInt32? = nil,
         contextRva: UInt32? = nil
     ) {
+        precondition(exceptionParameters.count <= 15,
+                     "exceptionParameters exceeds EXCEPTION_MAXIMUM_PARAMETERS (15)")
         self.threadId = threadId
         self.exceptionCode = exceptionCode
         self.exceptionFlags = exceptionFlags
         self.exceptionRecord = exceptionRecord
         self.exceptionAddress = exceptionAddress
-        self.numberOfParameters = numberOfParameters
+        self.numberOfParameters = UInt32(exceptionParameters.count)
         self.exceptionParameters = exceptionParameters
         self.contextDataSize = contextDataSize
         self.contextRva = contextRva

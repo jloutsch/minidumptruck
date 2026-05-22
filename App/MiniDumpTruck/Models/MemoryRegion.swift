@@ -148,13 +148,15 @@ public struct MemoryInfo: Identifiable, Sendable, Codable {
         self.type = MemoryType(rawValue: type) ?? .private
     }
 
-    /// Test-only memberwise init.
+    /// Test-only memberwise init. `state` has no default — leaking
+    /// `.commit` into a production caller could silently misclassify a
+    /// region's lifecycle.
     internal init(
         baseAddress: UInt64,
         allocationBase: UInt64 = 0,
         allocationProtect: MemoryProtection = MemoryProtection(rawValue: 0),
         regionSize: UInt64,
-        state: MemoryState = .commit,
+        state: MemoryState,
         protect: MemoryProtection = MemoryProtection(rawValue: 0),
         type: MemoryType = .private
     ) {
@@ -339,8 +341,11 @@ public struct MemoryInfoList: Sendable, Codable {
 
     public let entries: [MemoryInfo]
 
-    /// Test-only memberwise init. Production parses via `init?(from:at:)`.
+    /// Test-only memberwise init. Preserves the DoS bound the
+    /// byte-parser enforces (Self.maxEntries).
     internal init(entries: [MemoryInfo]) {
+        precondition(UInt64(entries.count) <= Self.maxEntries,
+                     "MemoryInfoList exceeds maxEntries cap (\(Self.maxEntries))")
         self.entries = entries
     }
 

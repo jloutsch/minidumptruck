@@ -105,15 +105,19 @@ public struct ThreadInfo: Identifiable, Sendable, Codable {
         self.context = ctx
     }
 
-    /// Test-only memberwise init. Production parses via `init?(from:at:)`.
+    /// Test-only memberwise init. `stack` and `contextLocation` have no
+    /// defaults — callers must supply them so a test that passes the
+    /// thread to CrashAnalyzer or stack-walker exercises a realistic
+    /// shape rather than an all-zero descriptor that production never
+    /// produces.
     internal init(
         id: UInt32,
         suspendCount: UInt32 = 0,
         priorityClass: UInt32 = 0,
         priority: UInt32 = 0,
         teb: UInt64 = 0,
-        stack: MinidumpMemoryDescriptor = MinidumpMemoryDescriptor(startOfMemoryRange: 0, dataSize: 0, rva: 0),
-        contextLocation: MinidumpLocationDescriptor = MinidumpLocationDescriptor(dataSize: 0, rva: 0),
+        stack: MinidumpMemoryDescriptor,
+        contextLocation: MinidumpLocationDescriptor,
         context: ThreadContext? = nil
     ) {
         self.id = id
@@ -134,8 +138,11 @@ public struct ThreadList: Sendable, Codable {
 
     public let threads: [ThreadInfo]
 
-    /// Test-only memberwise init. Production parses via `init?(from:at:)`.
+    /// Test-only memberwise init. Preserves the DoS bound the
+    /// byte-parser enforces (Self.maxThreads).
     internal init(threads: [ThreadInfo]) {
+        precondition(threads.count <= Int(Self.maxThreads),
+                     "ThreadList exceeds maxThreads cap (\(Self.maxThreads))")
         self.threads = threads
     }
 
