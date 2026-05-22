@@ -113,18 +113,25 @@ public struct BatchAnalyzer: Sendable {
     private static func analyzeFile(_ url: URL, maxFileSize: Int64?) async -> BatchResult {
         let fileName = url.lastPathComponent
 
-        // Pre-flight size check: skip files that exceed the cap rather
-        // than reading them into a Data buffer first.
-        if let cap = maxFileSize,
-           let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-           let size = attrs[.size] as? Int64,
-           size > cap {
-            let sizeStr = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
-            let capStr = ByteCountFormatter.string(fromByteCount: cap, countStyle: .file)
-            return BatchResult(
-                fileName: fileName,
-                outcome: .failure(reason: "file too large (\(sizeStr); limit \(capStr))")
-            )
+        // Pre-flight size + type check: skip files that exceed the cap
+        // or that aren't regular files. A symlink to /dev/zero would
+        // otherwise report size 0, bypass the cap, and OOM the worker
+        // when Data(contentsOf:) followed the link.
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) {
+            if let type = attrs[.type] as? FileAttributeType, type != .typeRegular {
+                return BatchResult(
+                    fileName: fileName,
+                    outcome: .failure(reason: "not a regular file (type: \(type.rawValue))")
+                )
+            }
+            if let cap = maxFileSize, let size = attrs[.size] as? Int64, size > cap {
+                let sizeStr = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+                let capStr = ByteCountFormatter.string(fromByteCount: cap, countStyle: .file)
+                return BatchResult(
+                    fileName: fileName,
+                    outcome: .failure(reason: "file too large (\(sizeStr); limit \(capStr))")
+                )
+            }
         }
 
         do {

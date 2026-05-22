@@ -31,33 +31,41 @@ struct ExportCommand: AsyncParsableCommand {
             throw CLIError.fileNotFound(path)
         }
 
-        let outputDir = URL(fileURLWithPath: output)
-        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-
-        let files: [URL]
-        if isDir.boolValue {
-            let contents = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
-            files = contents.filter { $0.pathExtension.lowercased() == "dmp" }
-                .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        } else {
-            files = [url]
-        }
-
-        guard !files.isEmpty else {
-            print("No .dmp files found.")
-            return
-        }
-
         do {
+            let outputDir = URL(fileURLWithPath: output)
+            do {
+                try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+            } catch {
+                throw CLIError.ioError(error.localizedDescription)
+            }
+
+            let files: [URL]
+            if isDir.boolValue {
+                do {
+                    let contents = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+                    files = contents.filter { $0.pathExtension.lowercased() == "dmp" }
+                        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+                } catch {
+                    throw CLIError.ioError(error.localizedDescription)
+                }
+            } else {
+                files = [url]
+            }
+
+            guard !files.isEmpty else {
+                print("No .dmp files found.")
+                return
+            }
+
             for file in files {
                 try exportFile(file, to: outputDir)
             }
+
+            print("Exported \(files.count) file(s) to \(outputDir.path)")
         } catch let cliError as CLIError {
             FileHandle.standardError.write(Data("\(cliError.description)\n".utf8))
             throw cliError.exitCode
         }
-
-        print("Exported \(files.count) file(s) to \(outputDir.path)")
     }
 
     private func exportFile(_ file: URL, to outputDir: URL) throws {

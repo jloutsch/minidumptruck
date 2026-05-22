@@ -133,10 +133,18 @@ struct AnalyzeCommand: AsyncParsableCommand {
     }
 
     private func findDumpFiles(in directory: URL) throws -> [URL] {
-        let contents = try FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil
-        )
+        // Wrap raw NSError as CLIError.ioError so a permission-denied
+        // directory exits with the documented code 3, not the generic
+        // code 1 ArgumentParser would produce otherwise.
+        let contents: [URL]
+        do {
+            contents = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil
+            )
+        } catch {
+            throw CLIError.ioError(error.localizedDescription)
+        }
         return contents
             .filter { $0.pathExtension.lowercased() == "dmp" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }

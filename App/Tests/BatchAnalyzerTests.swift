@@ -167,6 +167,65 @@ struct BatchAnalyzerTests {
         #expect(summary.successfulParses == 0)
     }
 
+    @Test func maxFileSizeRejectsOversizedFile() async throws {
+        let url = Self.testFile("test.dmp")
+        try #require(FileManager.default.fileExists(atPath: url.path))
+
+        // test.dmp is ~11 KB; cap to 1 KB to force rejection.
+        let (results, summary) = await BatchAnalyzer.analyze(
+            files: [url],
+            maxFileSize: 1024
+        )
+
+        #expect(results.count == 1)
+        let result = try #require(results.first)
+        guard case .failure(let reason) = result.outcome else {
+            Issue.record("expected .failure for oversized file")
+            return
+        }
+        #expect(reason.contains("file too large"))
+        #expect(summary.failedParses == 1)
+        #expect(summary.successfulParses == 0)
+    }
+
+    @Test func maxFileSizeNilDisablesGuard() async throws {
+        let url = Self.testFile("test.dmp")
+        try #require(FileManager.default.fileExists(atPath: url.path))
+
+        // nil maxFileSize disables the cap entirely — file parses.
+        let (results, summary) = await BatchAnalyzer.analyze(
+            files: [url],
+            maxFileSize: nil
+        )
+
+        #expect(results.count == 1)
+        #expect(summary.successfulParses == 1)
+    }
+
+    @Test func nonRegularFileRejectedWithoutOOM() async throws {
+        // A symlink to /dev/zero would otherwise report size 0,
+        // bypass any maxFileSize cap, and OOM Data(contentsOf:). The
+        // type check on FileAttributeType rejects it as non-regular.
+        let linkURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("batch-link-\(UUID().uuidString).dmp")
+        try FileManager.default.createSymbolicLink(
+            at: linkURL,
+            withDestinationURL: URL(fileURLWithPath: "/dev/zero")
+        )
+        defer { try? FileManager.default.removeItem(at: linkURL) }
+
+        let (results, summary) = await BatchAnalyzer.analyze(files: [linkURL])
+
+        #expect(results.count == 1)
+        let result = try #require(results.first)
+        guard case .failure(let reason) = result.outcome else {
+            Issue.record("expected .failure for non-regular file")
+            return
+        }
+        #expect(reason.contains("not a regular file"))
+        #expect(summary.failedParses == 1)
+    }
+
     @Test func concurrencyThrottlingWithMixedOutcomes() async throws {
         let good = Self.testFile("test.dmp")
         try #require(FileManager.default.fileExists(atPath: good.path))

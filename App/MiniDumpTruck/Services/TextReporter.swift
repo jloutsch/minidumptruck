@@ -122,8 +122,13 @@ public struct TextReporter: Sendable {
             if let module = summary.faultingModule {
                 lines.append("  Faulting Module: \(module.shortName.sanitizedForOutput())")
             }
-            lines.append("  Probable Cause: \(summary.probableCause)")
-            lines.append("  Recommendation: \(summary.recommendation)")
+            // probableCause/recommendation are composed by CrashAnalyzer
+            // and embed module.shortName, which is dump-sourced. Sanitize
+            // here as well as at the direct shortName interpolation sites
+            // so ANSI escapes in module names can't sneak in via the
+            // analyzer's generated text.
+            lines.append("  Probable Cause: \(summary.probableCause.sanitizedForOutput())")
+            lines.append("  Recommendation: \(summary.recommendation.sanitizedForOutput())")
             lines.append("")
 
             if let blame = analysis.blameModule {
