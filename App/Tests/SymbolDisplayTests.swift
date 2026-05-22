@@ -2,20 +2,10 @@ import Foundation
 import Testing
 @testable import MiniDumpTruckCore
 
-private func mockModule(name: String, base: UInt64, size: UInt32 = 0x10000) -> ModuleInfo {
-    var data = Data()
-    data.append(contentsOf: withUnsafeBytes(of: base.littleEndian) { Array($0) })
-    data.append(contentsOf: withUnsafeBytes(of: size.littleEndian) { Array($0) })
-    data.append(contentsOf: [UInt8](repeating: 0, count: ModuleInfo.size - 12))
-    var m = ModuleInfo(from: data, at: 0)!
-    m.setName(name)
-    return m
-}
-
 @Suite("Symbol Display")
 struct SymbolDisplayTests {
     @Test func displayPrefersSymbolWhenPresent() {
-        let module = mockModule(name: "ntdll.dll", base: 0x7FF800000000)
+        let module = makeModule(name: "ntdll.dll", base: 0x7FF800000000)
         let frame = StackFrame(
             address: 0x7FF800009A3C4,
             module: module,
@@ -28,7 +18,7 @@ struct SymbolDisplayTests {
     }
 
     @Test func displayFallsBackToModuleOffset() {
-        let module = mockModule(name: "app.exe", base: 0x140000000)
+        let module = makeModule(name: "app.exe", base: 0x140000000)
         let frame = StackFrame(
             address: 0x140004A1C,
             module: module,

@@ -413,7 +413,7 @@ struct CSVExporterTests {
     @Test func csvEscapesCommasInFields() {
         // Test with a module name that contains a comma
         // The CSV escaping logic should wrap it in quotes
-        let csv = CSVExporter.generateCSV(from: createMinimalDump())
+        let csv = CSVExporter.generateCSV(from: makeMinimalDump())
 
         // Basic structure check - should at least have BOM
         #expect(csv.hasPrefix("\u{FEFF}"))
@@ -514,7 +514,7 @@ struct CSVExporterTests {
         // test.dmp so it passes vacuously — this test feeds the
         // pipeline a CrashAnalysis whose synthesized strings carry
         // the threat payload.
-        let dump = createMinimalDump()
+        let dump = makeMinimalDump()
         // We can't easily craft a malformed ParsedMinidump module
         // here, but we CAN run the chokepoint directly with a hand-
         // crafted field — same call path used by the exporter.
@@ -562,7 +562,7 @@ struct CSVExporterTests {
 
     @Test func csvInjectionProtection() {
         // Verify that formula-triggering prefixes are neutralized
-        let dump = createMinimalDump()
+        let dump = makeMinimalDump()
         let csv = CSVExporter.generateCSV(from: dump)
 
         // The CSV escaping should prefix dangerous characters with a single quote.
@@ -597,39 +597,14 @@ struct CSVExporterTests {
         return count
     }
 
-    /// Create a minimal ParsedMinidump for testing without files
-    private func createMinimalDump() -> ParsedMinidump {
-        var data = Data(repeating: 0, count: 32)
-        // MDMP signature (little-endian)
-        data[0] = 0x4D; data[1] = 0x44; data[2] = 0x4D; data[3] = 0x50
-        // Version = 0xA793
-        data[4] = 0x93; data[5] = 0xA7
-        // numberOfStreams = 0
-        // streamDirectoryRva = 32 (pointing to end of header, valid but empty)
-        data[12] = 32
-
-        let header = MinidumpHeader(from: data)!
-        let streamDir = StreamDirectory(from: data, header: header)!
-        return ParsedMinidump(header: header, streamDirectory: streamDir, data: data)
-    }
 }
 
 @Suite("Symbol Surfacing")
 struct SymbolSurfacingTests {
-    private func mockModule(name: String, base: UInt64) -> ModuleInfo {
-        var data = Data()
-        data.append(contentsOf: withUnsafeBytes(of: base.littleEndian) { Array($0) })
-        data.append(contentsOf: withUnsafeBytes(of: UInt32(0x10000).littleEndian) { Array($0) })
-        data.append(contentsOf: [UInt8](repeating: 0, count: ModuleInfo.size - 12))
-        var m = ModuleInfo(from: data, at: 0)!
-        m.setName(name)
-        return m
-    }
-
     @Test func jsonExportIncludesStructuredSymbol() throws {
         let frame = StackFrame(
             address: 0x7FF800001014,
-            module: mockModule(name: "ntdll.dll", base: 0x7FF800000000),
+            module: makeModule(name: "ntdll.dll", base: 0x7FF800000000),
             offsetInModule: 0x1014,
             symbol: ResolvedSymbol(function: "NtClose", offsetInFunction: 0x14),
             frameType: .returnAddress,
@@ -646,7 +621,7 @@ struct SymbolSurfacingTests {
     @Test func displayAddressIsTheSingleFormattingChokepoint() {
         let frame = StackFrame(
             address: 0x7FF800001014,
-            module: mockModule(name: "ntdll.dll", base: 0x7FF800000000),
+            module: makeModule(name: "ntdll.dll", base: 0x7FF800000000),
             offsetInModule: 0x1014,
             symbol: ResolvedSymbol(function: "NtClose", offsetInFunction: 0x14),
             frameType: .returnAddress,

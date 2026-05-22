@@ -170,7 +170,7 @@ struct JSONExporterTests {
     }
 
     @Test func jsonWithMinimalDump() {
-        let dump = createMinimalDump()
+        let dump = makeMinimalDump()
         let json = JSONExporter.generateJSON(from: dump, analysis: nil)
 
         #expect(!json.isEmpty)
@@ -222,15 +222,4 @@ struct JSONExporterTests {
         #expect(parsed["error"] != nil)
     }
 
-    // MARK: - Helpers
-
-    private func createMinimalDump() -> ParsedMinidump {
-        var data = Data(repeating: 0, count: 32)
-        data[0] = 0x4D; data[1] = 0x44; data[2] = 0x4D; data[3] = 0x50
-        data[4] = 0x93; data[5] = 0xA7
-        data[12] = 32
-        let header = MinidumpHeader(from: data)!
-        let streamDir = StreamDirectory(from: data, header: header)!
-        return ParsedMinidump(header: header, streamDirectory: streamDir, data: data)
-    }
 }

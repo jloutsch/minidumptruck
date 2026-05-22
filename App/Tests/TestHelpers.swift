@@ -1,0 +1,116 @@
+// Shared test fixtures for the MiniDumpTruck test target. Helpers are
+// file-scope so any test file in the target can use them without
+// imports. Each helper is value-type-safe — concurrent tests get
+// independent instances.
+
+import Foundation
+import Testing
+@testable import MiniDumpTruckCore
+
+// MARK: - Raw dump bytes
+
+/// Smallest valid minidump byte buffer: 32-byte header with MDMP
+/// signature, 0 streams, empty stream directory at offset 32.
+func makeMinimalMinidumpBytes() -> Data {
+    var d = Data(repeating: 0, count: 32)
+    func w32(_ v: UInt32, _ o: Int) { for i in 0..<4 { d[o+i] = UInt8((v >> (i*8)) & 0xFF) } }
+    func w16(_ v: UInt16, _ o: Int) { d[o] = UInt8(v & 0xFF); d[o+1] = UInt8((v >> 8) & 0xFF) }
+    w32(0x504D444D, 0)        // MDMP signature
+    w16(0xA793, 4)            // version
+    w32(0, 8)                  // numberOfStreams
+    w32(32, 12)                // streamDirectoryRva (end of header)
+    w32(0, 16)                 // checksum
+    w32(1700000000, 20)        // timestamp
+    return d
+}
+
+// MARK: - Parsed-dump skeleton
+
+/// `ParsedMinidump` skeleton parsed from `makeMinimalMinidumpBytes`.
+/// Tests can mutate the var properties (moduleList, threadList, etc.)
+/// before passing to exporters or the analyzer. `ParsedMinidump` is a
+/// value type, so each call returns a fresh instance.
+func makeMinimalDump() -> ParsedMinidump {
+    let data = makeMinimalMinidumpBytes()
+    guard let header = MinidumpHeader(from: data) else {
+        fatalError("makeMinimalDump: MinidumpHeader.init regressed against the minimal-header layout in makeMinimalMinidumpBytes; update one or the other.")
+    }
+    guard let streamDir = StreamDirectory(from: data, header: header) else {
+        fatalError("makeMinimalDump: StreamDirectory.init regressed against the minimal-header layout; update one or the other.")
+    }
+    return ParsedMinidump(header: header, streamDirectory: streamDir, data: data)
+}
+
+// MARK: - Mock models
+
+/// Build a `ModuleInfo` with the given name + base + size.
+///
+/// Default 64 KB size is arbitrary but non-zero; override for tests
+/// asserting module-range coverage.
+func makeModule(name: String, base: UInt64, size: UInt32 = 0x10000) -> ModuleInfo {
+    var bytes = Data()
+    bytes.append(contentsOf: withUnsafeBytes(of: base.littleEndian) { Array($0) })
+    bytes.append(contentsOf: withUnsafeBytes(of: size.littleEndian) { Array($0) })
+    bytes.append(contentsOf: [UInt8](repeating: 0, count: ModuleInfo.size - 12))
+    guard var m = ModuleInfo(from: bytes, at: 0) else {
+        fatalError("makeModule: ModuleInfo.init regressed against the minimal byte layout; update the helper.")
+    }
+    m.setName(name)
+    return m
+}
+
+/// Zero-filled but structurally valid `ThreadContext` — all registers
+/// and flags zero. Tests asserting context-shape can use this without
+/// round-tripping through a real dump.
+func makeZeroContext() -> ThreadContext {
+    let buffer = Data(repeating: 0, count: ThreadContext.size)
+    guard let ctx = ThreadContext(from: buffer, at: 0) else {
+        fatalError("makeZeroContext: zero-buffer init regressed — ThreadContext.init likely tightened validation; update the helper.")
+    }
+    return ctx
+}
+
+// MARK: - Self-validation
+
+/// Pin the contract of the byte-layout helpers. If parser-side
+/// validation tightens (e.g., a new required field), this suite fails
+/// first with one clear diagnostic — instead of every consumer of the
+/// helpers failing simultaneously with cryptic downstream errors.
+@Suite("TestHelpers self-validation")
+struct TestHelpersSelfValidation {
+    @Test func minimalBytesParseSuccessfully() throws {
+        let bytes = makeMinimalMinidumpBytes()
+        let dump = try MinidumpParser.parse(data: bytes)
+        #expect(dump.streamDirectory.entries.isEmpty)
+    }
+
+    @Test func minimalDumpHeaderShape() {
+        // Exercises the two force-unwraps inside makeMinimalDump. If
+        // MinidumpHeader or StreamDirectory init regresses against the
+        // 32-byte layout, this test catches it before downstream
+        // consumers crash with opaque "Unexpectedly found nil."
+        let dump = makeMinimalDump()
+        #expect(dump.header.version == MinidumpHeader.formatVersion)
+        #expect(dump.header.streamDirectoryRva == 32)
+        #expect(dump.header.numberOfStreams == 0)
+        #expect(dump.streamDirectory.entries.isEmpty)
+        #expect(dump.moduleList == nil)
+        #expect(dump.threadList == nil)
+    }
+
+    @Test func makeModuleSetsNameAndBase() {
+        let m = makeModule(name: "test.dll", base: 0x40000000)
+        // setName assigns directly; assert both surfaces explicitly so
+        // a regression that broke either field is pinned.
+        #expect(m.name == "test.dll")
+        #expect(m.shortName == "test.dll")
+        #expect(m.baseAddress == 0x40000000)
+    }
+
+    @Test func makeZeroContextHasZeroRegisters() {
+        let ctx = makeZeroContext()
+        #expect(ctx.rip == 0)
+        #expect(ctx.rsp == 0)
+        #expect(ctx.rbp == 0)
+    }
+}

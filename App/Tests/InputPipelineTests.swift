@@ -4,21 +4,6 @@ import Testing
 
 /// Build a real `MDMP`-prefixed minidump body for tests.
 /// Returns the smallest synthetic dump that `MinidumpParser.parse` accepts.
-private func makeMinimalMinidumpBytes() -> Data {
-    // Header (32 bytes): signature 0x504D444D, version 0xA793, 0 streams,
-    // dir RVA 32, checksum 0, time 1700000000, flags 0.
-    var d = Data(repeating: 0, count: 32)
-    func w32(_ v: UInt32, _ o: Int) { for i in 0..<4 { d[o+i] = UInt8((v >> (i*8)) & 0xFF) } }
-    func w16(_ v: UInt16, _ o: Int) { d[o] = UInt8(v & 0xFF); d[o+1] = UInt8((v >> 8) & 0xFF) }
-    w32(0x504D444D, 0)
-    w16(0xA793, 4)
-    w32(0, 8)             // stream count
-    w32(32, 12)           // stream dir RVA
-    w32(0, 16)
-    w32(1700000000, 20)
-    return d
-}
-
 private func writeTempFile(name: String, body: Data) throws -> URL {
     let url = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("\(name)-\(UUID().uuidString)")
