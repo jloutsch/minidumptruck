@@ -38,7 +38,7 @@ public struct NEONRegister: Sendable, Equatable, Codable {
 ///  896 Wvr[0..1]       2 × u64        watchpoint value
 ///  912 (end)
 /// ```
-public struct ARM64Context: Sendable, Codable {
+public struct ARM64Context: Sendable, Codable, Equatable {
     public static let size = 912
 
     public let contextFlags: UInt32
@@ -109,36 +109,6 @@ public struct ARM64Context: Sendable, Codable {
         guard let fpcr = data.readUInt32(at: offset + 784),
               let fpsr = data.readUInt32(at: offset + 788)
         else { return nil }
-        self.fpcr = fpcr
-        self.fpsr = fpsr
-    }
-
-    /// Memberwise init for tests + synthetic dumps. No defaults on the
-    /// load-bearing fields — callers must supply realistic values so a
-    /// test that exercises stack walking or register display sees data
-    /// consistent with what a real dump would carry.
-    public init(
-        contextFlags: UInt32,
-        cpsr: UInt32,
-        xRegs: [UInt64],
-        sp: UInt64,
-        pc: UInt64,
-        vRegs: [NEONRegister]? = nil,
-        fpcr: UInt32 = 0,
-        fpsr: UInt32 = 0
-    ) {
-        precondition(xRegs.count == 31,
-                     "ARM64Context.xRegs must contain exactly 31 entries (X0–X30); got \(xRegs.count)")
-        if let vRegs {
-            precondition(vRegs.count == 32,
-                         "ARM64Context.vRegs must contain 32 NEON registers when present; got \(vRegs.count)")
-        }
-        self.contextFlags = contextFlags
-        self.cpsr = cpsr
-        self.xRegs = xRegs
-        self.sp = sp
-        self.pc = pc
-        self.vRegs = vRegs
         self.fpcr = fpcr
         self.fpsr = fpsr
     }

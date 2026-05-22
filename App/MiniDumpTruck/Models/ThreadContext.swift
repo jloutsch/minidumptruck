@@ -27,7 +27,7 @@ public struct XMMRegister: Sendable, Equatable, Codable {
 /// architecture-agnostic accessors (instructionPointer, stackPointer,
 /// framePointer, generalRegisters) so the stack walker and UI can stay
 /// arch-neutral.
-public enum ThreadContext: Sendable, Codable {
+public enum ThreadContext: Sendable, Codable, Equatable {
     case amd64(AMD64Context)
     case arm64(ARM64Context)
 
@@ -47,14 +47,6 @@ public enum ThreadContext: Sendable, Codable {
             self = .arm64(ctx)
             return
         }
-        guard let ctx = AMD64Context(from: data, at: offset) else { return nil }
-        self = .amd64(ctx)
-    }
-
-    /// Legacy parse path — assumes AMD64 layout, used by callers that
-    /// pre-date the multi-architecture refactor. Prefer the dataSize
-    /// variant when the location descriptor is available.
-    public init?(from data: Data, at offset: Int) {
         guard let ctx = AMD64Context(from: data, at: offset) else { return nil }
         self = .amd64(ctx)
     }
@@ -139,7 +131,7 @@ public enum ThreadContext: Sendable, Codable {
 
 /// x64 CPU context (CONTEXT_AMD64) — 1232 bytes.
 /// Reference: https://docs.rs/minidump-common/latest/minidump_common/format/struct.CONTEXT_AMD64.html
-public struct AMD64Context: Sendable, Codable {
+public struct AMD64Context: Sendable, Codable, Equatable {
     public static let size = 1232
     public static let contextFlagsOffset = 48
 

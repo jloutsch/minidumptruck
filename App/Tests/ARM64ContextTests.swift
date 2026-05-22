@@ -156,6 +156,28 @@ struct ARM64ContextTests {
         #expect(neon[0].value == "000000000000BEEF000000000000DEAD")
     }
 
+    @Test func neonRegistersParseAtUniqueOffsets() {
+        // Every V_i gets a unique value pair so off-by-one stride or
+        // lo/hi-swap regressions in the parser fail this test loudly.
+        // The previous test used identical payloads for all 32 regs and
+        // would happily pass with `272 + i*8` (wrong) or low/high swapped.
+        let vs: [(low: UInt64, high: UInt64)] = (0..<32).map { i in
+            (low: 0xAA00_0000_0000_0000 | UInt64(i),
+             high: 0xBB00_0000_0000_0000 | UInt64(i))
+        }
+        let arm = ARM64Context(from: makeARM64ContextBytes(
+            contextFlags: 0x4, vRegs: vs
+        ), at: 0)!
+        let parsed = try? #require(arm.vRegs)
+        guard let parsed else { return }
+        for i in 0..<32 {
+            #expect(parsed[i].low == 0xAA00_0000_0000_0000 | UInt64(i),
+                    "V\(i).low must round-trip; regression means stride or lo/hi byte order moved")
+            #expect(parsed[i].high == 0xBB00_0000_0000_0000 | UInt64(i),
+                    "V\(i).high must round-trip; regression means stride or lo/hi byte order moved")
+        }
+    }
+
     @Test func failsParseWhenBufferTooShort() {
         let short = Data(repeating: 0, count: ARM64Context.size - 1)
         #expect(ARM64Context(from: short, at: 0) == nil)
@@ -187,13 +209,19 @@ struct ThreadContextDispatchTests {
         }
     }
 
-    @Test func unknownDataSizeFallsBackToAMD64ForLegacyCompatibility() {
+    @Test func unknownDataSizeFallsBackToAMD64AndParsesRegisters() {
         // x86 (716-byte) dumps survived under the pre-multi-arch
         // single-init parse; preserve that fallback so we don't
-        // regress existing fixtures.
-        let d = Data(repeating: 0, count: 8192)  // big enough for AMD64 parse
+        // regress existing fixtures. Plant a recognizable RIP value at
+        // the AMD64 offset (248) and assert it round-trips — proves the
+        // fallback isn't returning a zeroed/garbage context.
+        var d = Data(repeating: 0, count: 8192)
+        d.writeLEUInt64(0xCAFE_BABE_DEAD_BEEF, at: 248)  // AMD64 RIP offset
         let ctx = ThreadContext(from: d, at: 0, dataSize: 716)
-        if case .amd64 = ctx {} else {
+        if case .amd64(let amd) = ctx {
+            #expect(amd.rip == 0xCAFE_BABE_DEAD_BEEF,
+                    "fallback must parse the AMD64 layout, not return a default-initialized stub")
+        } else {
             Issue.record("unknown dataSize must fall back to AMD64 parse for legacy compat")
         }
     }
