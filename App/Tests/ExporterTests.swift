@@ -597,17 +597,14 @@ struct CSVExporterTests {
         return count
     }
 
-    // createMinimalDump consolidated as makeMinimalDump in TestHelpers.swift (#10).
 }
 
 @Suite("Symbol Surfacing")
 struct SymbolSurfacingTests {
-    // mockModule consolidated in TestHelpers.swift (#10).
-
     @Test func jsonExportIncludesStructuredSymbol() throws {
         let frame = StackFrame(
             address: 0x7FF800001014,
-            module: mockModule(name: "ntdll.dll", base: 0x7FF800000000),
+            module: makeModule(name: "ntdll.dll", base: 0x7FF800000000),
             offsetInModule: 0x1014,
             symbol: ResolvedSymbol(function: "NtClose", offsetInFunction: 0x14),
             frameType: .returnAddress,
@@ -624,7 +621,7 @@ struct SymbolSurfacingTests {
     @Test func displayAddressIsTheSingleFormattingChokepoint() {
         let frame = StackFrame(
             address: 0x7FF800001014,
-            module: mockModule(name: "ntdll.dll", base: 0x7FF800000000),
+            module: makeModule(name: "ntdll.dll", base: 0x7FF800000000),
             offsetInModule: 0x1014,
             symbol: ResolvedSymbol(function: "NtClose", offsetInFunction: 0x14),
             frameType: .returnAddress,

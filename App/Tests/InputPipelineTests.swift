@@ -4,8 +4,6 @@ import Testing
 
 /// Build a real `MDMP`-prefixed minidump body for tests.
 /// Returns the smallest synthetic dump that `MinidumpParser.parse` accepts.
-// makeMinimalMinidumpBytes() consolidated in TestHelpers.swift (#10).
-
 private func writeTempFile(name: String, body: Data) throws -> URL {
     let url = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("\(name)-\(UUID().uuidString)")

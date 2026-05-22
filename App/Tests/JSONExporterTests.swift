@@ -222,5 +222,4 @@ struct JSONExporterTests {
         #expect(parsed["error"] != nil)
     }
 
-    // makeMinimalDump (was createMinimalDump) consolidated in TestHelpers.swift (#10).
 }

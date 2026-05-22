@@ -262,5 +262,4 @@ struct TextReporterTests {
         #expect(report.contains("investigate ntdll"))
     }
 
-    // makeMinimalDump (was createMinimalDump) consolidated in TestHelpers.swift (#10).
 }

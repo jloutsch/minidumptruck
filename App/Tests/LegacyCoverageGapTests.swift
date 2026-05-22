@@ -8,11 +8,6 @@ import Testing
 @Suite("Legacy coverage gaps (#29)")
 struct LegacyCoverageGapTests {
 
-    // MARK: - Helpers
-
-    // makeMinimalDump / mockModule / makeZeroContext consolidated in
-    // TestHelpers.swift (#10).
-
     // MARK: - 1. TextReporter verbose path
 
     @Test func textReporterVerbosePathRendersRegistersAndMemory() {
@@ -66,7 +61,7 @@ struct LegacyCoverageGapTests {
         // and verify RFC-4180 quoting wraps the field.
         var dump = makeMinimalDump()
         dump.moduleList = ModuleList(modules: [
-            mockModule(name: "foo, bar.dll", base: 0x40000000)
+            makeModule(name: "foo, bar.dll", base: 0x40000000)
         ])
 
         let csv = CSVExporter.generateCSV(from: dump)
@@ -100,7 +95,7 @@ struct LegacyCoverageGapTests {
         // and standalone & (must not double-encode).
         var dump = makeMinimalDump()
         dump.moduleList = ModuleList(modules: [
-            mockModule(
+            makeModule(
                 name: "<script>alert(1)</script>\" onerror=\"alert(2)\" & raw",
                 base: 0x50000000
             )

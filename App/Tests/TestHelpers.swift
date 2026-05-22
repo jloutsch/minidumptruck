@@ -1,8 +1,10 @@
 // Shared test fixtures. Closes the long-standing duplication tracked
 // in #10. New tests should pull helpers from here rather than copy-
-// pasting inline equivalents.
+// pasting inline equivalents. Helpers are file-scope so every file in
+// the test target can use them without import gymnastics.
 
 import Foundation
+import Testing
 @testable import MiniDumpTruckCore
 
 // MARK: - Raw dump bytes
@@ -25,14 +27,13 @@ func makeMinimalMinidumpBytes() -> Data {
 
 // MARK: - Parsed-dump skeleton
 
-/// Return a `ParsedMinidump` skeleton parsed from `makeMinimalMinidumpBytes`.
-/// Tests can mutate the var properties (moduleList, threadList, etc.)
-/// before passing to exporters or the analyzer.
+/// Return a `ParsedMinidump` skeleton parsed from
+/// `makeMinimalMinidumpBytes`. Tests can mutate the var properties
+/// (moduleList, threadList, etc.) before passing to exporters or the
+/// analyzer. `ParsedMinidump` is a value type, so each call returns a
+/// fresh instance — safe to mutate without cross-test contamination.
 func makeMinimalDump() -> ParsedMinidump {
-    var data = Data(repeating: 0, count: 32)
-    data[0] = 0x4D; data[1] = 0x44; data[2] = 0x4D; data[3] = 0x50  // MDMP
-    data[4] = 0x93; data[5] = 0xA7                                   // version
-    data[12] = 32                                                    // streamDirectoryRva
+    let data = makeMinimalMinidumpBytes()
     let header = MinidumpHeader(from: data)!
     let streamDir = StreamDirectory(from: data, header: header)!
     return ParsedMinidump(header: header, streamDirectory: streamDir, data: data)
@@ -42,7 +43,11 @@ func makeMinimalDump() -> ParsedMinidump {
 
 /// Build a `ModuleInfo` with the given name + base + size. Used by
 /// exporter, symbolicator, and coverage-gap tests.
-func mockModule(name: String, base: UInt64, size: UInt32 = 0x10000) -> ModuleInfo {
+///
+/// `size: 0x10000` (64 KB) is the default the prior duplicates used —
+/// non-zero, arbitrary, and small enough to fit any test setup. Tests
+/// asserting module-range coverage should override explicitly.
+func makeModule(name: String, base: UInt64, size: UInt32 = 0x10000) -> ModuleInfo {
     var bytes = Data()
     bytes.append(contentsOf: withUnsafeBytes(of: base.littleEndian) { Array($0) })
     bytes.append(contentsOf: withUnsafeBytes(of: size.littleEndian) { Array($0) })
@@ -57,5 +62,43 @@ func mockModule(name: String, base: UInt64, size: UInt32 = 0x10000) -> ModuleInf
 /// this without round-tripping through a real dump.
 func makeZeroContext() -> ThreadContext {
     let buffer = Data(repeating: 0, count: ThreadContext.size)
-    return ThreadContext(from: buffer, at: 0)!
+    guard let ctx = ThreadContext(from: buffer, at: 0) else {
+        fatalError("makeZeroContext: zero-buffer init regressed — ThreadContext.init likely tightened validation; update the helper.")
+    }
+    return ctx
+}
+
+// MARK: - Self-validation
+
+/// Pin the contract of the byte-layout helpers. If parser-side
+/// validation tightens (e.g., a new required field), this test fails
+/// first with one clear diagnostic — instead of every consumer of the
+/// helpers failing simultaneously with cryptic downstream errors.
+@Suite("TestHelpers self-validation")
+struct TestHelpersSelfValidation {
+    @Test func minimalBytesParseSuccessfully() throws {
+        let bytes = makeMinimalMinidumpBytes()
+        let dump = try MinidumpParser.parse(data: bytes)
+        #expect(dump.streamDirectory.entries.isEmpty)
+    }
+
+    @Test func minimalDumpSkeletonShape() {
+        let dump = makeMinimalDump()
+        #expect(dump.streamDirectory.entries.isEmpty)
+        #expect(dump.moduleList == nil)
+        #expect(dump.threadList == nil)
+    }
+
+    @Test func makeModuleSetsName() {
+        let m = makeModule(name: "test.dll", base: 0x40000000)
+        #expect(m.name.hasSuffix("test.dll") || m.shortName == "test.dll")
+        #expect(m.baseAddress == 0x40000000)
+    }
+
+    @Test func makeZeroContextHasZeroRIP() {
+        let ctx = makeZeroContext()
+        #expect(ctx.rip == 0)
+        #expect(ctx.rsp == 0)
+        #expect(ctx.rbp == 0)
+    }
 }

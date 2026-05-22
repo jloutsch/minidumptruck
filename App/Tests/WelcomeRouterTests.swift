@@ -4,8 +4,6 @@ import Testing
 
 /// Build a minimal valid minidump body so the tests can construct a real
 /// `ParsedMinidump` for the `.openInPlace` case.
-// makeMinimalMinidumpBytes() consolidated in TestHelpers.swift (#10).
-
 @Suite("WelcomeRouter")
 struct WelcomeRouterTests {
     @Test func openInPlaceRoutesToOpenDocument() throws {

@@ -2,12 +2,10 @@ import Foundation
 import Testing
 @testable import MiniDumpTruckCore
 
-// mockModule consolidated in TestHelpers.swift (#10).
-
 @Suite("Symbol Display")
 struct SymbolDisplayTests {
     @Test func displayPrefersSymbolWhenPresent() {
-        let module = mockModule(name: "ntdll.dll", base: 0x7FF800000000)
+        let module = makeModule(name: "ntdll.dll", base: 0x7FF800000000)
         let frame = StackFrame(
             address: 0x7FF800009A3C4,
             module: module,
@@ -20,7 +18,7 @@ struct SymbolDisplayTests {
     }
 
     @Test func displayFallsBackToModuleOffset() {
-        let module = mockModule(name: "app.exe", base: 0x140000000)
+        let module = makeModule(name: "app.exe", base: 0x140000000)
         let frame = StackFrame(
             address: 0x140004A1C,
             module: module,
