@@ -420,7 +420,10 @@ public struct HTMLExporter: Sendable {
 
     // MARK: - Utilities
 
-    private static func escapeHTML(_ string: String) -> String {
+    // Internal (not private) so tests can verify the chokepoint
+    // directly with crafted input. Production code reaches this via
+    // every field interpolation in the report builders above.
+    static func escapeHTML(_ string: String) -> String {
         // Strip ANSI escapes, null bytes, bidi formatting marks, zero-
         // width chars BEFORE HTML entity encoding. Without this,
         // dump-sourced module/version/thread name fields would ship

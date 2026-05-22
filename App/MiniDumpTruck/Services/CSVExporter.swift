@@ -167,7 +167,9 @@ public struct CSVExporter: Sendable {
 
     // MARK: - Utilities
 
-    private static func escapeCSV(_ field: String) -> String {
+    // Internal (not private) so tests can verify the chokepoint
+    // directly with crafted input.
+    static func escapeCSV(_ field: String) -> String {
         // Strip control chars, bidi marks, zero-width chars BEFORE
         // CSV-specific handling. Without this, a dump-sourced module
         // name containing \x1b[2J or U+202E ships into the CSV file

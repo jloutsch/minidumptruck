@@ -210,6 +210,26 @@ struct HTMLExporterTests {
         #expect(html.contains("Faulting"))
     }
 
+    @Test func escapeHTMLStripsControlCharsBeforeEntityEncoding() {
+        // The actual threat model: a malicious dump field containing
+        // ANSI escapes / null / RTL override reaches escapeHTML. The
+        // chokepoint must strip those BEFORE HTML entity encoding so
+        // that no raw control bytes ship in the output. Order matters:
+        // strip-then-encode produces "&amp;" for &, never "&amp;\x1b".
+        let evil = "evil\u{001B}[2J\u{0000}\u{202E}<script>"
+        let escaped = HTMLExporter.escapeHTML(evil)
+
+        #expect(!escaped.contains("\u{001B}"))
+        #expect(!escaped.contains("\u{0000}"))
+        #expect(!escaped.contains("\u{202E}"))
+        // HTML entity encoding still applies to remaining printable chars.
+        #expect(escaped.contains("&lt;script&gt;"))
+        #expect(!escaped.contains("<script>"))
+        // Non-control printable parts survive (the "[2J" trailer after
+        // the ESC strip is plain text and should appear).
+        #expect(escaped.contains("evil"))
+    }
+
     @Test func htmlStripsAnsiAndBidiFromFileName() throws {
         let url = Self.testFile("test.dmp")
         try #require(FileManager.default.fileExists(atPath: url.path))
@@ -415,6 +435,39 @@ struct CSVExporterTests {
                 #expect(dataColumnCount == headerColumnCount, "Data row column count (\(dataColumnCount)) should match header (\(headerColumnCount))")
             }
         }
+    }
+
+    @Test func escapeCSVStripsControlCharsBeforeQuoting() {
+        // Direct chokepoint test: malicious field containing ANSI
+        // escapes / NUL / RTL override / embedded line breaks (a
+        // row-breakout attempt) must have all control + bidi bytes
+        // stripped. The RFC-4180 quoting layer then becomes defense-
+        // in-depth.
+        let evil = "evil\u{001B}[2J\u{0000}\u{202E}line\nbreak\rfield,with,commas"
+        let escaped = CSVExporter.escapeCSV(evil)
+
+        #expect(!escaped.contains("\u{001B}"))
+        #expect(!escaped.contains("\u{0000}"))
+        #expect(!escaped.contains("\u{202E}"))
+        #expect(!escaped.contains("\n"))
+        #expect(!escaped.contains("\r"))
+        // Commas still trigger quoting after sanitization.
+        #expect(escaped.hasPrefix("\"") && escaped.hasSuffix("\""))
+        #expect(escaped.contains("evil"))
+    }
+
+    @Test func escapeCSVNeutralizesFormulaPrefix() {
+        // The existing injection guard should still fire after the
+        // sanitizer pass. A leading "=" must be neutralized with a
+        // single quote — a control char preceding the "=" would not
+        // exist anymore because it's stripped first, so "=" becomes
+        // the first character.
+        let evil = "\u{0001}=SUM(A1:A9)"
+        let escaped = CSVExporter.escapeCSV(evil)
+        #expect(!escaped.contains("\u{0001}"))
+        // After stripping the control char, "=SUM..." has "=" first,
+        // which the existing guard prefixes with a single quote.
+        #expect(escaped.hasPrefix("'="))
     }
 
     @Test func csvExportContainsNoControlChars() throws {
