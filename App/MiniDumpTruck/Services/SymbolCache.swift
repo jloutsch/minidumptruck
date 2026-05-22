@@ -91,15 +91,55 @@ public actor SymbolCache {
 
 /// Identity of a specific PDB build, used as a cache key and to form
 /// symbol-server URLs.
+///
+/// The `pdbName` and `guid` flow into both filesystem paths and URLs,
+/// so the initializer validates them strictly. An attacker controls
+/// the CodeView record in a malicious .dmp; without these guards, a
+/// `pdbName` of `"../../../../etc/passwd"` would survive
+/// `URL.appendingPathComponent` (which does not normalize `..`) and
+/// could clobber arbitrary user-writable files when the cache stores
+/// a PDB. A `guid` containing slashes would similarly redirect URL
+/// requests. Reject both.
 public struct PDBIdentity: Hashable, Sendable {
     public let pdbName: String     // e.g. "ntdll.pdb"
     public let guid: String        // 32 uppercase hex chars, no dashes
     public let age: UInt32         // small integer
 
-    public init(pdbName: String, guid: String, age: UInt32) {
+    /// Failable initializer that rejects pdbName / guid values that
+    /// would be unsafe in a filesystem path or URL. Returns nil on:
+    ///   - empty pdbName or guid
+    ///   - pdbName containing path separators, `..`, `.`, control
+    ///     characters, NUL, or anything outside [A-Za-z0-9._-]
+    ///   - pdbName too long (>128 chars) or missing
+    ///   - guid not exactly 32 hex characters
+    public init?(pdbName: String, guid: String, age: UInt32) {
+        guard Self.isValidPDBName(pdbName),
+              Self.isValidGUID(guid) else { return nil }
         self.pdbName = pdbName
         self.guid = guid.uppercased()
         self.age = age
+    }
+
+    /// Allowed: [A-Za-z0-9._-]{1,128}. No path separators, no `..`
+    /// (rejected via the `.` filter), no control chars, no NULs.
+    private static func isValidPDBName(_ name: String) -> Bool {
+        guard !name.isEmpty, name.count <= 128 else { return false }
+        // Reject anything containing characters outside the safe set.
+        let allowed: Set<Character> = Set(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+        )
+        guard name.allSatisfy({ allowed.contains($0) }) else { return false }
+        // `..` and `.` as full names would be path-traversal primitives
+        // even though `.` is in the allowed set above. Reject explicitly.
+        guard name != "." && name != ".." else { return false }
+        return true
+    }
+
+    /// Allowed: exactly 32 hex characters (case-insensitive).
+    private static func isValidGUID(_ guid: String) -> Bool {
+        guard guid.count == 32 else { return false }
+        let hex: Set<Character> = Set("0123456789abcdefABCDEF")
+        return guid.allSatisfy { hex.contains($0) }
     }
 
     /// The `<GUID><AGE>` directory name MSDL uses. Age is rendered as

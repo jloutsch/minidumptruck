@@ -28,17 +28,25 @@ public actor SymbolServer {
 
     /// Toggle: when false, all `fetch` calls return `.offline`. Users
     /// can disable auto-download in app settings; tests can disable to
-    /// avoid network egress.
+    /// avoid network egress. Assign through the actor:
+    /// `await server.isEnabled = false`.
     public var isEnabled: Bool = true
 
-    public init(baseURL: URL = SymbolServer.microsoftPublicURL,
-                urlSession: URLSession = .shared) {
-        self.baseURL = baseURL
-        self.urlSession = urlSession
-    }
+    /// Default URLSession with per-request and overall resource
+    /// timeouts. A slow-loris MitM (or a degraded MSDL) shouldn't be
+    /// able to keep all 8 concurrent fetch slots stalled for minutes.
+    private static let defaultSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 15     // single-request stall budget
+        config.timeoutIntervalForResource = 30    // overall completion budget
+        config.waitsForConnectivity = false       // fail fast on no-network
+        return URLSession(configuration: config)
+    }()
 
-    public func setEnabled(_ value: Bool) {
-        self.isEnabled = value
+    public init(baseURL: URL = SymbolServer.microsoftPublicURL,
+                urlSession: URLSession? = nil) {
+        self.baseURL = baseURL
+        self.urlSession = urlSession ?? SymbolServer.defaultSession
     }
 
     /// Build the canonical MSDL URL for a PDB identity. Public for

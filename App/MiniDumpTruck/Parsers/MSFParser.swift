@@ -35,7 +35,16 @@ public struct MSFFile: Sendable {
         case blockIndexOutOfRange(UInt32)
         case streamSizeOutOfRange(UInt32)
         case directoryReadFailure
+        case streamExceedsFileSize
     }
+
+    /// Cap on the size of any single stream we'll materialize. PDBs
+    /// for OS DLLs are well under 100 MB; an attacker-controlled or
+    /// MitM-served PDB could declare a stream size up to UInt32.max
+    /// (~4 GB), and a Memory64-style DoS via 8 concurrent fetches
+    /// could attempt 32 GB of allocations. 256 MB is generous for
+    /// real-world PDBs and bounded for safety.
+    public static let maxStreamSize: Int = 256 * 1024 * 1024
 
     /// The parsed SuperBlock fields we use.
     public struct SuperBlock: Sendable {
@@ -81,6 +90,22 @@ public struct MSFFile: Sendable {
         let validSizes: Set<UInt32> = [512, 1024, 2048, 4096, 8192, 16384, 32768]
         guard validSizes.contains(blockSize) else {
             throw ParseError.invalidBlockSize(blockSize)
+        }
+
+        // numBlocks * blockSize must fit inside the actual file. A
+        // malformed PDB that claims to be larger than its bytes can't
+        // possibly be valid; we reject early instead of failing
+        // later on individual block reads.
+        let (claimedFileSize, fileSizeOverflow) = numBlocks.multipliedReportingOverflow(by: blockSize)
+        guard !fileSizeOverflow, Int(claimedFileSize) <= data.count else {
+            throw ParseError.streamExceedsFileSize
+        }
+
+        // Directory size and per-stream sizes are also attacker-
+        // influenced (CodeView -> PDBIdentity -> server URL -> bytes).
+        // Cap each at `maxStreamSize` to bound memory.
+        guard Int(numDirectoryBytes) <= MSFFile.maxStreamSize else {
+            throw ParseError.streamSizeOutOfRange(numDirectoryBytes)
         }
 
         self.superBlock = SuperBlock(
@@ -143,6 +168,12 @@ public struct MSFFile: Sendable {
             if size == 0xFFFF_FFFF {
                 streams.append(StreamInfo(size: 0, blockIndices: []))
                 continue
+            }
+            // Reject streams larger than our memory cap before computing
+            // the block-count loop, otherwise an attacker can declare
+            // size=UInt32.max and force the parser to walk a huge list.
+            guard Int(size) <= MSFFile.maxStreamSize else {
+                throw ParseError.streamSizeOutOfRange(size)
             }
             let blockCount = Int((size + blockSize - 1) / blockSize)
             var blocks: [UInt32] = []

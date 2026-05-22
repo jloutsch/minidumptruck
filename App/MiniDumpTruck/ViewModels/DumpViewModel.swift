@@ -82,17 +82,23 @@ class DumpViewModel {
     /// or a "Resolving symbols..." note.
     var isResolvingSymbols: Bool = false
 
-    /// Kick off async symbol resolution for the given dump. Idempotent
-    /// — concurrent calls are coalesced via a single token. Failures
+    /// Kick off async symbol resolution for the given dump. Failures
     /// (network, malformed PDB) are silent: the dict just stays empty
     /// and views fall back to slice-1 (PE export) symbols or
     /// module+offset.
+    ///
+    /// The `defer` is load-bearing: if the SwiftUI `.task(id:)` that
+    /// invoked us cancels (because the user switched dumps), the
+    /// await throws CancellationError and Swift unwinds through the
+    /// defer — leaving `isResolvingSymbols == false` so the next
+    /// dump's load isn't permanently blocked. Without the defer, the
+    /// flag could wedge true and every subsequent dump would silently
+    /// skip resolution.
     func loadSymbols(for dump: ParsedMinidump, service: SymbolicationService) async {
-        guard !isResolvingSymbols else { return }
         isResolvingSymbols = true
+        defer { isResolvingSymbols = false }
         let tables = await service.loadSymbols(for: dump)
         self.pdbTables = tables
-        self.isResolvingSymbols = false
     }
 
     func selectThread(_ thread: ThreadInfo) {

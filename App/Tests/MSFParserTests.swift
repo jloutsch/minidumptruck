@@ -100,4 +100,39 @@ struct MSFParserTests {
         #expect(msf.readStream(99) == nil)
         #expect(msf.readStream(-1) == nil)
     }
+
+    @Test func absurdNumBlocksRejected() {
+        // Malformed SuperBlock claiming the file is far larger than
+        // its actual byte count must fail early instead of trying to
+        // read past EOF on every block access.
+        var pdb = SyntheticPDB.build(
+            sections: [SyntheticPDB.Section(virtualAddress: 0x1000, virtualSize: 0)],
+            symbols: []
+        )
+        // numBlocks at offset 40 — overwrite with a huge value.
+        pdb.writeLEUInt32(0x0010_0000, at: 40)  // claim 1M blocks * 4KB = 4 GB
+        do {
+            _ = try MSFFile(data: pdb)
+            Issue.record("expected streamExceedsFileSize")
+        } catch MSFFile.ParseError.streamExceedsFileSize {
+            // expected
+        } catch {
+            Issue.record("expected streamExceedsFileSize, got \(error)")
+        }
+    }
+
+    @Test func absurdDirectorySizeRejected() {
+        // numDirectoryBytes > maxStreamSize must reject before
+        // walking the directory block list. Otherwise an attacker-
+        // claimed huge directory could pin gigabytes.
+        var pdb = SyntheticPDB.build(
+            sections: [SyntheticPDB.Section(virtualAddress: 0x1000, virtualSize: 0)],
+            symbols: []
+        )
+        // numDirectoryBytes at offset 44.
+        pdb.writeLEUInt32(UInt32(MSFFile.maxStreamSize + 1), at: 44)
+        #expect(throws: MSFFile.ParseError.self) {
+            _ = try MSFFile(data: pdb)
+        }
+    }
 }

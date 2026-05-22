@@ -98,6 +98,13 @@ public actor SymbolicationService {
               let pdbName = Self.basename(cv.pdbName),
               !pdbName.isEmpty
         else { return nil }
+        // Reject all-zero GUIDs — they correspond to PDBs that were
+        // never built or stripped of debug info, and MSDL will always
+        // 404 the request. Skipping saves a network round-trip per
+        // such module.
+        guard guid.contains(where: { $0 != "0" }) else { return nil }
+        // PDBIdentity.init? rejects malformed pdbName / guid that
+        // could otherwise traverse the cache root or redirect URLs.
         return PDBIdentity(pdbName: pdbName, guid: guid, age: cv.age)
     }
 
