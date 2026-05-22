@@ -113,8 +113,15 @@ public struct BinaryDataReader: Sendable {
     }
 
     public mutating func skip(_ count: Int) {
-        let newPosition = max(0, position + count)
-        position = min(newPosition, data.count)
+        // Use overflow-reporting addition so an attacker-derived
+        // `count` (e.g. read from a malformed dump field) can't trap
+        // on Int overflow. On overflow, clamp to data.count or 0.
+        let (sum, overflow) = position.addingReportingOverflow(count)
+        if overflow {
+            position = count > 0 ? data.count : 0
+        } else {
+            position = min(max(0, sum), data.count)
+        }
     }
 
     public mutating func read<T: FixedWidthInteger>(_ type: T.Type) -> T? {

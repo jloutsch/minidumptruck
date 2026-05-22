@@ -130,13 +130,14 @@ struct RegisterGridView: View {
     let context: ThreadContext
 
     var body: some View {
+        let ipName = context.ipRegisterName
         VStack(alignment: .leading, spacing: 12) {
             // Instruction pointer
             HStack {
-                Text("RIP:")
+                Text("\(ipName):")
                     .fontWeight(.bold)
                     .frame(width: 40, alignment: .leading)
-                Text(String(format: "0x%016llX", context.rip))
+                Text(String(format: "0x%016llX", context.instructionPointer))
                     .fontDesign(.monospaced)
                     .foregroundStyle(.blue)
             }
@@ -150,7 +151,7 @@ struct RegisterGridView: View {
                 GridItem(.flexible()),
                 GridItem(.flexible())
             ], spacing: 8) {
-                ForEach(context.generalRegisters.filter { $0.name != "RIP" }, id: \.name) { reg in
+                ForEach(context.generalRegisters.filter { $0.name != ipName }, id: \.name) { reg in
                     HStack {
                         Text("\(reg.name):")
                             .fontWeight(.medium)
@@ -164,14 +165,26 @@ struct RegisterGridView: View {
 
             Divider()
 
-            // Flags
-            HStack {
-                Text("EFLAGS:")
-                    .fontWeight(.medium)
-                Text(String(format: "0x%08X", context.eflags))
-                    .fontDesign(.monospaced)
-                Text("[\(context.eflagsDescription.joined(separator: " "))]")
-                    .foregroundStyle(.secondary)
+            // Flags — arch-specific decoded condition codes.
+            switch context {
+            case .amd64(let amd):
+                HStack {
+                    Text("EFLAGS:")
+                        .fontWeight(.medium)
+                    Text(String(format: "0x%08X", amd.eflags))
+                        .fontDesign(.monospaced)
+                    Text("[\(amd.eflagsDescription.joined(separator: " "))]")
+                        .foregroundStyle(.secondary)
+                }
+            case .arm64(let arm):
+                HStack {
+                    Text("CPSR:")
+                        .fontWeight(.medium)
+                    Text(String(format: "0x%08X", arm.cpsr))
+                        .fontDesign(.monospaced)
+                    Text("[\(arm.cpsrFlags.joined(separator: " "))]")
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

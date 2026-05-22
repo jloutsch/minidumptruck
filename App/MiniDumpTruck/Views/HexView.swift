@@ -258,10 +258,20 @@ struct HexView: View {
             return
         }
 
-        // Check if address is in this region
+        // Check if address is in this region.
+        //
+        // The (address - baseAddress) delta is a UInt64; for a region
+        // whose endAddress has saturated to UInt64.max (malformed dump
+        // where baseAddress + regionSize overflowed), the delta can
+        // exceed Int.max and `Int(...)` would trap. Bound the delta
+        // before converting so a malformed dump can't crash the view.
         if address >= region.baseAddress && address < region.endAddress {
-            let offset = Int(address - region.baseAddress)
-            scrollTo(offset)
+            let delta = address - region.baseAddress
+            guard delta <= UInt64(Int.max) else {
+                jumpError = "Address out of viewable range"
+                return
+            }
+            scrollTo(Int(delta))
         } else {
             jumpError = "Address not in region"
         }

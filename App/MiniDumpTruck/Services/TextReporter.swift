@@ -179,8 +179,16 @@ public struct TextReporter: Sendable {
                 lines.append(threadLine)
 
                 if verbose, let ctx = thread.context {
-                    lines.append("    RIP=\(String(format: "0x%016llX", ctx.rip)) RSP=\(String(format: "0x%016llX", ctx.rsp)) RBP=\(String(format: "0x%016llX", ctx.rbp))")
-                    lines.append("    RAX=\(String(format: "0x%016llX", ctx.rax)) RBX=\(String(format: "0x%016llX", ctx.rbx)) RCX=\(String(format: "0x%016llX", ctx.rcx)) RDX=\(String(format: "0x%016llX", ctx.rdx))")
+                    // Architecture-neutral first line (IP / SP / FP). Then
+                    // an architecture-specific second line so x64 callers
+                    // still see RAX-RDX and ARM64 callers see X0-X3.
+                    lines.append("    \(ctx.ipRegisterName)=\(String(format: "0x%016llX", ctx.instructionPointer)) \(ctx.spRegisterName)=\(String(format: "0x%016llX", ctx.stackPointer)) \(ctx.fpRegisterName)=\(String(format: "0x%016llX", ctx.framePointer))")
+                    switch ctx {
+                    case .amd64(let amd):
+                        lines.append("    RAX=\(String(format: "0x%016llX", amd.rax)) RBX=\(String(format: "0x%016llX", amd.rbx)) RCX=\(String(format: "0x%016llX", amd.rcx)) RDX=\(String(format: "0x%016llX", amd.rdx))")
+                    case .arm64(let arm):
+                        lines.append("    X0=\(String(format: "0x%016llX", arm.xRegs[0])) X1=\(String(format: "0x%016llX", arm.xRegs[1])) X2=\(String(format: "0x%016llX", arm.xRegs[2])) X3=\(String(format: "0x%016llX", arm.xRegs[3]))")
+                    }
                 }
             }
             lines.append("")

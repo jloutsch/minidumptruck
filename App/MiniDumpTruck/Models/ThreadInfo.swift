@@ -172,10 +172,16 @@ public struct ThreadList: Sendable, Codable {
             let threadOffset = offset + 4 + (i * ThreadInfo.size)
             guard var thread = ThreadInfo(from: data, at: threadOffset) else { continue }
 
-            // Parse context if available
+            // Parse context if available. Dispatch by dataSize so ARM64
+            // dumps (CONTEXT_ARM64 = 912 bytes) parse correctly without
+            // needing SystemInfo to be loaded first.
             if thread.contextLocation.dataSize > 0 {
                 let ctxOffset = Int(thread.contextLocation.rva)
-                if let context = ThreadContext(from: data, at: ctxOffset) {
+                if let context = ThreadContext(
+                    from: data,
+                    at: ctxOffset,
+                    dataSize: thread.contextLocation.dataSize
+                ) {
                     thread.setContext(context)
                 }
             }

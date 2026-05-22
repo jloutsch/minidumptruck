@@ -298,15 +298,17 @@ public struct HTMLExporter: Sendable {
                 html += "<details><summary>Registers</summary>"
                 html += "<table class=\"data-table\"><thead><tr><th>Register</th><th>Value</th></tr></thead><tbody>"
 
-                let regs: [(String, UInt64)] = [
-                    ("RIP", ctx.rip), ("RSP", ctx.rsp), ("RBP", ctx.rbp),
-                    ("RAX", ctx.rax), ("RBX", ctx.rbx), ("RCX", ctx.rcx),
-                    ("RDX", ctx.rdx), ("RSI", ctx.rsi), ("RDI", ctx.rdi),
-                    ("R8", ctx.r8), ("R9", ctx.r9), ("R10", ctx.r10),
-                    ("R11", ctx.r11), ("R12", ctx.r12), ("R13", ctx.r13),
-                    ("R14", ctx.r14), ("R15", ctx.r15),
-                    ("RFLAGS", UInt64(ctx.eflags))
-                ]
+                // Architecture-neutral via the enum's generalRegisters
+                // accessor — yields RAX-R15 on x64 and X0-PC on ARM64.
+                // Append the architecture's flags register at the end so
+                // the report carries condition-code state too.
+                var regs: [(String, UInt64)] = ctx.generalRegisters
+                switch ctx {
+                case .amd64(let amd):
+                    regs.append(("RFLAGS", UInt64(amd.eflags)))
+                case .arm64(let arm):
+                    regs.append(("CPSR", UInt64(arm.cpsr)))
+                }
 
                 for (name, value) in regs {
                     html += "<tr><td class=\"mono\">\(name)</td><td class=\"mono\">\(formatAddress(value))</td></tr>"

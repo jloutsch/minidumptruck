@@ -68,15 +68,29 @@ public struct CSVExporter: Sendable {
     private static func threadsSection(_ threads: [ThreadInfo], threadNames: ThreadNameList?) -> String {
         var lines: [String] = []
         lines.append("# Threads")
+        // Architecture-neutral column names. A dump is either all x64 or
+        // all ARM64 so we can pick the header once based on the first
+        // available context. IP/SP/FP map to RIP/RSP/RBP on x64 and to
+        // PC/SP/FP on ARM64; R0-R3 map to RAX/RCX/RDX/RBX vs X0-X3.
+        let firstCtx = threads.lazy.compactMap { $0.context }.first
+        let arch = firstCtx?.architectureName ?? "x64"
+        let ipName = firstCtx?.ipRegisterName ?? "RIP"
+        let spName = firstCtx?.spRegisterName ?? "RSP"
+        let fpName = firstCtx?.fpRegisterName ?? "RBP"
+        let r0Name = arch == "ARM64" ? "X0" : "RAX"
+        let r1Name = arch == "ARM64" ? "X1" : "RCX"
+        let r2Name = arch == "ARM64" ? "X2" : "RDX"
+        let r3Name = arch == "ARM64" ? "X3" : "RBX"
         lines.append(csvRow([
             "Thread ID", "Name", "Priority", "Priority Class", "Suspend Count",
             "Stack Base", "Stack Size", "TEB",
-            "RIP", "RSP", "RBP", "RAX", "RCX", "RDX", "RBX"
+            ipName, spName, fpName, r0Name, r1Name, r2Name, r3Name
         ]))
 
         for thread in threads {
             let name = threadNames?.name(for: thread.id) ?? ""
             let ctx = thread.context
+            let arch0 = arch0Through3(ctx)
             lines.append(csvRow([
                 String(thread.id),
                 name,
@@ -86,17 +100,33 @@ public struct CSVExporter: Sendable {
                 formatAddress(thread.stack.startOfMemoryRange),
                 String(thread.stack.dataSize),
                 formatAddress(thread.teb),
-                ctx.map { formatAddress($0.rip) } ?? "",
-                ctx.map { formatAddress($0.rsp) } ?? "",
-                ctx.map { formatAddress($0.rbp) } ?? "",
-                ctx.map { formatAddress($0.rax) } ?? "",
-                ctx.map { formatAddress($0.rcx) } ?? "",
-                ctx.map { formatAddress($0.rdx) } ?? "",
-                ctx.map { formatAddress($0.rbx) } ?? ""
+                ctx.map { formatAddress($0.instructionPointer) } ?? "",
+                ctx.map { formatAddress($0.stackPointer) } ?? "",
+                ctx.map { formatAddress($0.framePointer) } ?? "",
+                arch0.0,
+                arch0.1,
+                arch0.2,
+                arch0.3
             ]))
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    /// First four architecture-specific GP registers (RAX/RCX/RDX/RBX on
+    /// x64, X0–X3 on ARM64) as pre-formatted hex strings. Empty strings
+    /// when no context is available.
+    private static func arch0Through3(_ ctx: ThreadContext?) -> (String, String, String, String) {
+        switch ctx {
+        case .amd64(let amd):
+            return (formatAddress(amd.rax), formatAddress(amd.rcx),
+                    formatAddress(amd.rdx), formatAddress(amd.rbx))
+        case .arm64(let arm):
+            return (formatAddress(arm.xRegs[0]), formatAddress(arm.xRegs[1]),
+                    formatAddress(arm.xRegs[2]), formatAddress(arm.xRegs[3]))
+        case .none:
+            return ("", "", "", "")
+        }
     }
 
     private static func handlesSection(_ handles: [HandleEntry]) -> String {
