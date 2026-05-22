@@ -54,13 +54,16 @@ public struct CrashAnalyzer: Sendable {
 
     // MARK: - Stack Walking
 
-    /// Walk the stack using hybrid approach: RBP chain + heuristic scan
+    /// Walk the stack using a hybrid approach: frame-pointer chain when
+    /// available, heuristic scan as a supplement. Architecture-aware —
+    /// dispatches to AAPCS64 walking for ARM64 contexts, the existing
+    /// RBP-chain logic for x64.
     private func walkStack(context: ThreadContext, thread: ThreadInfo) -> [StackFrame] {
         var frames: [StackFrame] = []
         var seenAddresses: Set<UInt64> = []
 
         // Frame 0: Exception address (the actual faulting instruction)
-        // This is more accurate than RIP which may be in exception handling code
+        // This is more accurate than IP which may be in exception-handling code.
         if let exception = dump.exception {
             let exceptionFrame = createFrame(
                 address: exception.exceptionAddress,
@@ -71,34 +74,51 @@ public struct CrashAnalyzer: Sendable {
             seenAddresses.insert(exception.exceptionAddress)
         }
 
-        // Frame 1: Thread RIP (if different from exception address)
-        if !seenAddresses.contains(context.rip) {
-            let ripFrame = createFrame(
-                address: context.rip,
+        // Frame 1: Thread IP (RIP / PC) if different from exception address.
+        let ip = context.instructionPointer
+        if !seenAddresses.contains(ip) {
+            let ipFrame = createFrame(
+                address: ip,
                 type: .instructionPointer,
                 confidence: .high
             )
-            frames.append(ripFrame)
-            seenAddresses.insert(context.rip)
+            frames.append(ipFrame)
+            seenAddresses.insert(ip)
         }
 
-        // Try RBP chain walking first
-        let rbpFrames = walkRBPChain(
-            rbp: context.rbp,
-            rsp: context.rsp,
-            thread: thread
-        )
-
-        for frame in rbpFrames {
-            if !seenAddresses.contains(frame.address) {
+        // Architecture-specific frame-pointer walking.
+        switch context {
+        case .amd64(let amd):
+            let rbpFrames = walkRBPChain(rbp: amd.rbp, rsp: amd.rsp, thread: thread)
+            for frame in rbpFrames where !seenAddresses.contains(frame.address) {
+                frames.append(frame)
+                seenAddresses.insert(frame.address)
+            }
+        case .arm64(let arm):
+            // AAPCS64: the LR (X30) holds the immediate return address for
+            // the leaf frame; non-leaf frames spill the previous LR at
+            // [FP, #8] and the previous FP at [FP, #0]. Seed the walk with
+            // LR so we capture the caller even when the function never
+            // wrote a frame record.
+            if arm.lr != 0, !seenAddresses.contains(arm.lr),
+               dump.moduleList?.module(containing: arm.lr) != nil {
+                frames.append(createFrame(
+                    address: arm.lr,
+                    type: .returnAddress,
+                    confidence: .medium
+                ))
+                seenAddresses.insert(arm.lr)
+            }
+            let fpFrames = walkAArch64FrameChain(fp: arm.fp, sp: arm.sp, thread: thread)
+            for frame in fpFrames where !seenAddresses.contains(frame.address) {
                 frames.append(frame)
                 seenAddresses.insert(frame.address)
             }
         }
 
-        // Supplement with heuristic stack scan
+        // Supplement with heuristic stack scan from the architecture-neutral SP.
         let scannedFrames = scanStackForReturnAddresses(
-            rsp: context.rsp,
+            rsp: context.stackPointer,
             thread: thread,
             existingAddresses: seenAddresses
         )
@@ -106,6 +126,61 @@ public struct CrashAnalyzer: Sendable {
 
         // Apply consistent total frame limit
         return Array(frames.prefix(maxTotalFrames))
+    }
+
+    /// Walk the AAPCS64 frame-record chain on ARM64.
+    ///
+    /// AAPCS64 prologue stores [previous FP | previous LR] as a 16-byte
+    /// record at the top of the local stack frame and sets X29 to point
+    /// at it. So given a valid FP we read `[fp]` = saved FP and
+    /// `[fp+8]` = saved LR (return address into the caller). This
+    /// breaks on omit-frame-pointer code (-fomit-frame-pointer or
+    /// equivalent), in which case the heuristic scan picks up the
+    /// remaining frames.
+    private func walkAArch64FrameChain(
+        fp: UInt64,
+        sp: UInt64,
+        thread: ThreadInfo
+    ) -> [StackFrame] {
+        var frames: [StackFrame] = []
+        var currentFP = fp
+        var iterations = 0
+        let maxIterations = 100
+
+        let stackBase = thread.stack.startOfMemoryRange
+        let stackEnd = thread.stack.endAddress
+
+        while iterations < maxIterations {
+            iterations += 1
+
+            // FP must point inside the captured stack, be SP-relative, and
+            // 16-byte-aligned per AAPCS64.
+            guard currentFP >= stackBase && currentFP < stackEnd else { break }
+            guard currentFP >= sp else { break }
+            guard currentFP % 16 == 0 else { break }
+
+            // Read saved FP at [fp] and saved LR at [fp+8].
+            let (fpPlus8, overflow) = currentFP.addingReportingOverflow(8)
+            guard !overflow,
+                  let savedFP = readUInt64(at: currentFP),
+                  let returnAddress = readUInt64(at: fpPlus8) else {
+                break
+            }
+
+            if dump.moduleList?.module(containing: returnAddress) != nil {
+                frames.append(createFrame(
+                    address: returnAddress,
+                    type: .framePointer,
+                    confidence: .high
+                ))
+            }
+
+            // Frame records grow toward higher addresses; stop if we'd loop.
+            guard savedFP > currentFP else { break }
+            currentFP = savedFP
+        }
+
+        return frames
     }
 
     /// Walk RBP chain (x64 standard calling convention)

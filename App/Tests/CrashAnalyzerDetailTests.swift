@@ -273,7 +273,7 @@ struct CrashAnalyzerSyntheticTests {
         let moduleNameUtf16 = Array(moduleName.utf16)
         let moduleNameBytes = 4 + moduleNameUtf16.count * 2
         let contextRva = moduleNameStart + UInt32(moduleNameBytes) + 4 // align
-        let m64Rva = contextRva + UInt32(ThreadContext.size)
+        let m64Rva = contextRva + UInt32(AMD64Context.size)
         let stackBase: UInt64 = 0x00080000
         let stackSize: UInt32 = 0x10000
         let m64DataStart = m64Rva + 16 + 16  // header + 1 descriptor
@@ -320,7 +320,7 @@ struct CrashAnalyzerSyntheticTests {
         data.writeUInt32(2, at: exOff + 32)      // numberOfParameters
         data.writeUInt64(0, at: exOff + 40)      // param[0] = read
         data.writeUInt64(0x0000DEAD, at: exOff + 48) // param[1] = target addr
-        data.writeUInt32(UInt32(ThreadContext.size), at: exOff + 160)
+        data.writeUInt32(UInt32(AMD64Context.size), at: exOff + 160)
         data.writeUInt32(contextRva, at: exOff + 164)
 
         // ThreadList
@@ -336,7 +336,7 @@ struct CrashAnalyzerSyntheticTests {
         data.writeUInt32(stackSize, at: threadOff + 36)
         data.writeUInt32(0, at: threadOff + 40)   // stack rva (not needed for this test)
         // Context location
-        data.writeUInt32(UInt32(ThreadContext.size), at: threadOff + 44)
+        data.writeUInt32(UInt32(AMD64Context.size), at: threadOff + 44)
         data.writeUInt32(contextRva, at: threadOff + 48)
 
         // Context (at contextRva)

@@ -794,7 +794,7 @@ struct ThreadContextTests {
         rip: UInt64 = 0x7FF800001234,
         eflags: UInt32 = 0x0246  // PF+ZF+IF
     ) -> Data {
-        var data = Data(repeating: 0, count: ThreadContext.size)
+        var data = Data(repeating: 0, count: AMD64Context.size)
         // P1Home-P6Home at 0-47 (zeros)
         data.writeUInt32(contextFlags, at: 48)
         data.writeUInt32(0, at: 52) // mxCsr
@@ -830,7 +830,7 @@ struct ThreadContextTests {
 
     @Test func parsesRegisters() {
         let data = makeContextData()
-        let ctx = ThreadContext(from: data, at: 0)
+        let ctx = AMD64Context(from: data, at: 0)
         #expect(ctx != nil)
         #expect(ctx?.rax == 1)
         #expect(ctx?.rbx == 2)
@@ -841,7 +841,7 @@ struct ThreadContextTests {
 
     @Test func segmentRegisters() {
         let data = makeContextData()
-        let ctx = ThreadContext(from: data, at: 0)!
+        let ctx = AMD64Context(from: data, at: 0)!
         #expect(ctx.segCs == 0x33)
         #expect(ctx.segDs == 0x2B)
         let segs = ctx.segmentRegisters
@@ -852,7 +852,7 @@ struct ThreadContextTests {
     @Test func eflagsDecoding() {
         // 0x0246 = PF(0x04) + ZF(0x40) + IF(0x200)
         let data = makeContextData(eflags: 0x0246)
-        let ctx = ThreadContext(from: data, at: 0)!
+        let ctx = AMD64Context(from: data, at: 0)!
         let flags = ctx.eflagsDescription
         #expect(flags.contains("PF"))
         #expect(flags.contains("ZF"))
@@ -864,7 +864,7 @@ struct ThreadContextTests {
     @Test func eflagsAllFlags() {
         let allFlags: UInt32 = 0x0001 | 0x0004 | 0x0010 | 0x0040 | 0x0080 | 0x0100 | 0x0200 | 0x0400 | 0x0800
         let data = makeContextData(eflags: allFlags)
-        let ctx = ThreadContext(from: data, at: 0)!
+        let ctx = AMD64Context(from: data, at: 0)!
         let flags = ctx.eflagsDescription
         #expect(flags.count == 9)
         #expect(flags.contains("CF"))
@@ -880,7 +880,7 @@ struct ThreadContextTests {
 
     @Test func generalRegistersArray() {
         let data = makeContextData(rax: 0xAA, rbx: 0xBB)
-        let ctx = ThreadContext(from: data, at: 0)!
+        let ctx = AMD64Context(from: data, at: 0)!
         let regs = ctx.generalRegisters
         #expect(regs.count == 17)  // RAX through R15 + RIP
         #expect(regs[0].name == "RAX")
@@ -891,7 +891,7 @@ struct ThreadContextTests {
 
     @Test func debugRegistersArray() {
         let data = makeContextData()
-        let ctx = ThreadContext(from: data, at: 0)!
+        let ctx = AMD64Context(from: data, at: 0)!
         let debugRegs = ctx.debugRegisters
         #expect(debugRegs.count == 6)
         #expect(debugRegs[0].name == "DR0")
@@ -903,7 +903,7 @@ struct ThreadContextTests {
         data.writeUInt64(0x1111111111111111, at: 416)      // XMM0 low
         data.writeUInt64(0x2222222222222222, at: 416 + 8)  // XMM0 high
 
-        let ctx = ThreadContext(from: data, at: 0)!
+        let ctx = AMD64Context(from: data, at: 0)!
         #expect(ctx.floatSaveValid == true)
         #expect(ctx.xmm0 != nil)
         #expect(ctx.xmm0?.low == 0x1111111111111111)
@@ -912,7 +912,7 @@ struct ThreadContextTests {
 
     @Test func xmmRegistersWithoutFloatSave() {
         let data = makeContextData(contextFlags: 0x01000000)  // No CONTEXT_FLOATING_POINT
-        let ctx = ThreadContext(from: data, at: 0)!
+        let ctx = AMD64Context(from: data, at: 0)!
         #expect(ctx.floatSaveValid == false)
         #expect(ctx.xmm0 == nil)
         #expect(ctx.xmmRegisters.isEmpty)
@@ -925,11 +925,12 @@ struct ThreadContextTests {
 
     @Test func failsOnTruncatedData() {
         let data = Data(repeating: 0, count: 100)
-        #expect(ThreadContext(from: data, at: 0) == nil)
+        #expect(AMD64Context(from: data, at: 0) == nil)
     }
 
     @Test func structSize() {
-        #expect(ThreadContext.size == 1232)
+        #expect(AMD64Context.size == 1232)
+        #expect(ARM64Context.size == 912)
     }
 }
 

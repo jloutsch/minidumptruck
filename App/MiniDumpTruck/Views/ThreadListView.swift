@@ -131,7 +131,7 @@ struct ThreadRowView: View {
             Spacer()
 
             if let context = thread.context {
-                Text(String(format: "RIP: 0x%016llX", context.rip))
+                Text(String(format: "\(context.ipRegisterName): 0x%016llX", context.instructionPointer))
                     .font(.caption)
                     .fontDesign(.monospaced)
                     .foregroundStyle(.secondary)

@@ -59,15 +59,29 @@ func makeModule(name: String, base: UInt64, size: UInt32 = 0x10000) -> ModuleInf
     return m
 }
 
-/// Zero-filled but structurally valid `ThreadContext` — all registers
-/// and flags zero. Tests asserting context-shape can use this without
-/// round-tripping through a real dump.
+/// Zero-filled but structurally valid `ThreadContext` (x64 / AMD64) —
+/// all registers and flags zero. Tests asserting context-shape can use
+/// this without round-tripping through a real dump.
+///
+/// Wraps the underlying `AMD64Context` in the multi-architecture enum
+/// so it can be passed wherever `ThreadContext` is expected.
 func makeZeroContext() -> ThreadContext {
-    let buffer = Data(repeating: 0, count: ThreadContext.size)
-    guard let ctx = ThreadContext(from: buffer, at: 0) else {
-        fatalError("makeZeroContext: zero-buffer init regressed — ThreadContext.init likely tightened validation; update the helper.")
+    let buffer = Data(repeating: 0, count: AMD64Context.size)
+    guard let amd = AMD64Context(from: buffer, at: 0) else {
+        fatalError("makeZeroContext: zero-buffer init regressed — AMD64Context.init likely tightened validation; update the helper.")
     }
-    return ctx
+    return .amd64(amd)
+}
+
+/// Zero-filled `ARM64Context` for tests that need to exercise the
+/// architecture-branching paths (UI labels, stack walking) without
+/// constructing a synthetic ARM64 dump.
+func makeZeroARM64Context() -> ThreadContext {
+    let buffer = Data(repeating: 0, count: ARM64Context.size)
+    guard let arm = ARM64Context(from: buffer, at: 0) else {
+        fatalError("makeZeroARM64Context: zero-buffer init regressed — ARM64Context.init likely tightened validation; update the helper.")
+    }
+    return .arm64(arm)
 }
 
 // MARK: - Self-validation
@@ -109,8 +123,18 @@ struct TestHelpersSelfValidation {
 
     @Test func makeZeroContextHasZeroRegisters() {
         let ctx = makeZeroContext()
-        #expect(ctx.rip == 0)
-        #expect(ctx.rsp == 0)
-        #expect(ctx.rbp == 0)
+        // Architecture-neutral accessors hide the AMD64 vs ARM64 split.
+        #expect(ctx.instructionPointer == 0)
+        #expect(ctx.stackPointer == 0)
+        #expect(ctx.framePointer == 0)
+        #expect(ctx.architectureName == "x64")
+    }
+
+    @Test func makeZeroARM64ContextHasZeroRegistersAndArchitecture() {
+        let ctx = makeZeroARM64Context()
+        #expect(ctx.instructionPointer == 0)
+        #expect(ctx.stackPointer == 0)
+        #expect(ctx.framePointer == 0)
+        #expect(ctx.architectureName == "ARM64")
     }
 }

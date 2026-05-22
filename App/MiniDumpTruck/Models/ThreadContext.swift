@@ -16,9 +16,130 @@ public struct XMMRegister: Sendable, Equatable, Codable {
     }
 }
 
-/// x64 CPU context (CONTEXT_AMD64) - 1232 bytes
+/// CPU context captured at the moment a thread was suspended.
+///
+/// Windows minidumps embed a per-thread architecture-specific CONTEXT
+/// record. The dump file does not declare which flavor it is — the
+/// reader must dispatch by `MINIDUMP_LOCATION_DESCRIPTOR.dataSize`
+/// (`CONTEXT_AMD64` is 1232 bytes, `CONTEXT_ARM64` is 912 bytes), or
+/// equivalently by `SystemInfo.processorArchitecture`. This enum keeps
+/// the per-architecture data type-safe while exposing a handful of
+/// architecture-agnostic accessors (instructionPointer, stackPointer,
+/// framePointer, generalRegisters) so the stack walker and UI can stay
+/// arch-neutral.
+public enum ThreadContext: Sendable, Codable {
+    case amd64(AMD64Context)
+    case arm64(ARM64Context)
+
+    /// Parse a context record at the given offset, using `dataSize` to
+    /// pick the architecture-specific layout.
+    ///
+    /// ARM64 contexts are exactly 912 bytes (`CONTEXT_ARM64`). Everything
+    /// else falls through to the AMD64 (`CONTEXT_AMD64`, 1232-byte)
+    /// parser — that matches the pre-multi-architecture behavior the
+    /// rest of the tool relies on, and remains tolerant of x86 dumps
+    /// where the parser reads what it can within the 716-byte window
+    /// the actual context occupies (RAX-R15 happen to land at offsets
+    /// that produce usable IP/SP/FP for triage).
+    public init?(from data: Data, at offset: Int, dataSize: UInt32) {
+        if dataSize == UInt32(ARM64Context.size) {
+            guard let ctx = ARM64Context(from: data, at: offset) else { return nil }
+            self = .arm64(ctx)
+            return
+        }
+        guard let ctx = AMD64Context(from: data, at: offset) else { return nil }
+        self = .amd64(ctx)
+    }
+
+    /// Legacy parse path — assumes AMD64 layout, used by callers that
+    /// pre-date the multi-architecture refactor. Prefer the dataSize
+    /// variant when the location descriptor is available.
+    public init?(from data: Data, at offset: Int) {
+        guard let ctx = AMD64Context(from: data, at: offset) else { return nil }
+        self = .amd64(ctx)
+    }
+
+    // MARK: - Architecture-agnostic accessors
+
+    /// Human-readable CPU architecture name ("x64" / "ARM64").
+    public var architectureName: String {
+        switch self {
+        case .amd64: return "x64"
+        case .arm64: return "ARM64"
+        }
+    }
+
+    /// Architecture-conventional name for the instruction-pointer
+    /// register (RIP / PC). Used by UI labels and report formatters
+    /// that want to print "RIP=..." vs "PC=..." without branching at
+    /// every call site.
+    public var ipRegisterName: String {
+        switch self {
+        case .amd64: return "RIP"
+        case .arm64: return "PC"
+        }
+    }
+
+    /// Architecture-conventional name for the stack-pointer register
+    /// (RSP / SP).
+    public var spRegisterName: String {
+        switch self {
+        case .amd64: return "RSP"
+        case .arm64: return "SP"
+        }
+    }
+
+    /// Architecture-conventional name for the frame-pointer register
+    /// (RBP / FP). On x64 with omit-frame-pointer code this is just a
+    /// general-purpose register; on ARM64 X29 is conventionally the FP.
+    public var fpRegisterName: String {
+        switch self {
+        case .amd64: return "RBP"
+        case .arm64: return "FP"
+        }
+    }
+
+    /// Program counter at the moment of capture (RIP on x64, PC on ARM64).
+    public var instructionPointer: UInt64 {
+        switch self {
+        case .amd64(let c): return c.rip
+        case .arm64(let c): return c.pc
+        }
+    }
+
+    /// Stack pointer at the moment of capture (RSP on x64, SP on ARM64).
+    public var stackPointer: UInt64 {
+        switch self {
+        case .amd64(let c): return c.rsp
+        case .arm64(let c): return c.sp
+        }
+    }
+
+    /// Frame pointer (RBP on x64, X29 on ARM64). When code is compiled
+    /// `-fomit-frame-pointer` this is just a general-purpose register —
+    /// stack walkers must not assume it points at a frame.
+    public var framePointer: UInt64 {
+        switch self {
+        case .amd64(let c): return c.rbp
+        case .arm64(let c): return c.fp
+        }
+    }
+
+    /// All general-purpose registers as name/value pairs, in the
+    /// architecture's conventional display order.
+    public var generalRegisters: [(name: String, value: UInt64)] {
+        switch self {
+        case .amd64(let c): return c.generalRegisters
+        case .arm64(let c): return c.generalRegisters
+        }
+    }
+}
+
+// MARK: - AMD64 (x86_64) context
+
+/// x64 CPU context (CONTEXT_AMD64) — 1232 bytes.
 /// Reference: https://docs.rs/minidump-common/latest/minidump_common/format/struct.CONTEXT_AMD64.html
-public struct ThreadContext: Sendable, Codable {
+public struct AMD64Context: Sendable, Codable {
     public static let size = 1232
     public static let contextFlagsOffset = 48
 

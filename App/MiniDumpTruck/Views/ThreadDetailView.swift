@@ -74,7 +74,9 @@ struct ThreadDetailView: View {
 
                 // Registers
                 if let context = thread.context {
-                    GroupBox("Registers") {
+                    let ipName = context.ipRegisterName
+                    let spName = context.spRegisterName
+                    GroupBox("Registers (\(context.architectureName))") {
                         VStack(alignment: .leading, spacing: 16) {
                             // Instruction pointer
                             VStack(alignment: .leading, spacing: 4) {
@@ -83,13 +85,13 @@ struct ThreadDetailView: View {
                                     .foregroundStyle(.secondary)
 
                                 HStack {
-                                    Text("RIP:")
+                                    Text("\(ipName):")
                                         .fontWeight(.bold)
-                                    Text(String(format: "0x%016llX", context.rip))
+                                    Text(String(format: "0x%016llX", context.instructionPointer))
                                         .fontDesign(.monospaced)
                                         .foregroundStyle(.blue)
 
-                                    if let module = document.module(containing: context.rip) {
+                                    if let module = document.module(containing: context.instructionPointer) {
                                         Text("(\(module.shortName))")
                                             .foregroundStyle(.secondary)
                                     }
@@ -108,7 +110,7 @@ struct ThreadDetailView: View {
                                     GridItem(.flexible()),
                                     GridItem(.flexible())
                                 ], spacing: 4) {
-                                    ForEach(context.generalRegisters.filter { $0.name != "RIP" }, id: \.name) { reg in
+                                    ForEach(context.generalRegisters.filter { $0.name != ipName }, id: \.name) { reg in
                                         HStack {
                                             Text("\(reg.name):")
                                                 .fontWeight(.medium)
@@ -131,59 +133,125 @@ struct ThreadDetailView: View {
                                     .foregroundStyle(.secondary)
 
                                 HStack {
-                                    Text("RSP:")
+                                    Text("\(spName):")
                                         .fontWeight(.bold)
-                                    Text(String(format: "0x%016llX", context.rsp))
+                                    Text(String(format: "0x%016llX", context.stackPointer))
                                         .fontDesign(.monospaced)
                                         .foregroundStyle(.green)
                                 }
                             }
 
-                            Divider()
+                            // Architecture-specific blocks: x64 segment regs +
+                            // EFLAGS vs ARM64 CPSR (NEON regs are voluminous —
+                            // shown only on demand in a future iteration).
+                            switch context {
+                            case .amd64(let amd):
+                                Divider()
 
-                            // Flags
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Flags")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                // Flags
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Flags")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
 
-                                HStack {
-                                    Text("EFLAGS:")
-                                        .fontWeight(.medium)
-                                    Text(String(format: "0x%08X", context.eflags))
-                                        .fontDesign(.monospaced)
-                                }
-
-                                if !context.eflagsDescription.isEmpty {
                                     HStack {
-                                        ForEach(context.eflagsDescription, id: \.self) { flag in
-                                            Text(flag)
-                                                .font(.caption)
-                                                .padding(.horizontal, 6)
-                                                .padding(.vertical, 2)
-                                                .background(.quaternary)
-                                                .clipShape(Capsule())
+                                        Text("EFLAGS:")
+                                            .fontWeight(.medium)
+                                        Text(String(format: "0x%08X", amd.eflags))
+                                            .fontDesign(.monospaced)
+                                    }
+
+                                    if !amd.eflagsDescription.isEmpty {
+                                        HStack {
+                                            ForEach(amd.eflagsDescription, id: \.self) { flag in
+                                                Text(flag)
+                                                    .font(.caption)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 2)
+                                                    .background(.quaternary)
+                                                    .clipShape(Capsule())
+                                            }
                                         }
                                     }
                                 }
-                            }
 
-                            Divider()
+                                Divider()
 
-                            // Segment registers
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Segment Registers")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                // Segment registers
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Segment Registers")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
 
-                                HStack(spacing: 16) {
-                                    ForEach(context.segmentRegisters, id: \.name) { reg in
-                                        HStack(spacing: 4) {
-                                            Text("\(reg.name):")
-                                                .fontWeight(.medium)
-                                            Text(String(format: "0x%04X", reg.value))
-                                                .fontDesign(.monospaced)
-                                                .font(.caption)
+                                    HStack(spacing: 16) {
+                                        ForEach(amd.segmentRegisters, id: \.name) { reg in
+                                            HStack(spacing: 4) {
+                                                Text("\(reg.name):")
+                                                    .fontWeight(.medium)
+                                                Text(String(format: "0x%04X", reg.value))
+                                                    .fontDesign(.monospaced)
+                                                    .font(.caption)
+                                            }
+                                        }
+                                    }
+                                }
+
+                            case .arm64(let arm):
+                                Divider()
+
+                                // CPSR (NZCV condition flags + execution state).
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Flags")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+
+                                    HStack {
+                                        Text("CPSR:")
+                                            .fontWeight(.medium)
+                                        Text(String(format: "0x%08X", arm.cpsr))
+                                            .fontDesign(.monospaced)
+                                    }
+
+                                    if !arm.cpsrFlags.isEmpty {
+                                        HStack {
+                                            ForEach(arm.cpsrFlags, id: \.self) { flag in
+                                                Text(flag)
+                                                    .font(.caption)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 2)
+                                                    .background(.quaternary)
+                                                    .clipShape(Capsule())
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if arm.floatSaveValid {
+                                    Divider()
+
+                                    // FP control / status registers (V0–V31
+                                    // payload is 512 bytes — surfaced only on
+                                    // demand to avoid drowning the view).
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("FP Control")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+
+                                        HStack(spacing: 16) {
+                                            HStack(spacing: 4) {
+                                                Text("FPCR:")
+                                                    .fontWeight(.medium)
+                                                Text(String(format: "0x%08X", arm.fpcr))
+                                                    .fontDesign(.monospaced)
+                                                    .font(.caption)
+                                            }
+                                            HStack(spacing: 4) {
+                                                Text("FPSR:")
+                                                    .fontWeight(.medium)
+                                                Text(String(format: "0x%08X", arm.fpsr))
+                                                    .fontDesign(.monospaced)
+                                                    .font(.caption)
+                                            }
                                         }
                                     }
                                 }
