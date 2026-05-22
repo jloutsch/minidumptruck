@@ -2,15 +2,7 @@ import Foundation
 import Testing
 @testable import MiniDumpTruckCore
 
-private func mockModule(name: String, base: UInt64, size: UInt32 = 0x10000) -> ModuleInfo {
-    var data = Data()
-    data.append(contentsOf: withUnsafeBytes(of: base.littleEndian) { Array($0) })
-    data.append(contentsOf: withUnsafeBytes(of: size.littleEndian) { Array($0) })
-    data.append(contentsOf: [UInt8](repeating: 0, count: ModuleInfo.size - 12))
-    var m = ModuleInfo(from: data, at: 0)!
-    m.setName(name)
-    return m
-}
+// mockModule consolidated in TestHelpers.swift (#10).
 
 @Suite("Symbol Display")
 struct SymbolDisplayTests {

@@ -10,39 +10,8 @@ struct LegacyCoverageGapTests {
 
     // MARK: - Helpers
 
-    /// Minimal valid ParsedMinidump skeleton, mutable for adding lists.
-    // TODO(#10): consolidate this + makeModule + makeZeroContext into
-    // a shared TestHelpers.swift; identical shapes exist in
-    // ExporterTests / JSONExporterTests / TextReporterTests today.
-    private static func makeMinimalDump() -> ParsedMinidump {
-        var data = Data(repeating: 0, count: 32)
-        data[0] = 0x4D; data[1] = 0x44; data[2] = 0x4D; data[3] = 0x50
-        data[4] = 0x93; data[5] = 0xA7
-        data[12] = 32
-        let header = MinidumpHeader(from: data)!
-        let streamDir = StreamDirectory(from: data, header: header)!
-        return ParsedMinidump(header: header, streamDirectory: streamDir, data: data)
-    }
-
-    /// Synthesize a ModuleInfo with the given name. Mirrors the
-    /// `mockModule` helper used elsewhere in the test suite.
-    private static func makeModule(name: String, base: UInt64 = 0x10000000) -> ModuleInfo {
-        var bytes = Data()
-        bytes.append(contentsOf: withUnsafeBytes(of: base.littleEndian) { Array($0) })
-        bytes.append(contentsOf: withUnsafeBytes(of: UInt32(0x10000).littleEndian) { Array($0) })
-        bytes.append(contentsOf: [UInt8](repeating: 0, count: ModuleInfo.size - 12))
-        var m = ModuleInfo(from: bytes, at: 0)!
-        m.setName(name)
-        return m
-    }
-
-    /// Synthesize a zero-filled but structurally valid ThreadContext.
-    /// Most register fields will be zero; the test only asserts that
-    /// the verbose RIP=/RSP=/RBP= row is rendered at all.
-    private static func makeZeroContext() -> ThreadContext {
-        let buffer = Data(repeating: 0, count: ThreadContext.size)
-        return ThreadContext(from: buffer, at: 0)!
-    }
+    // makeMinimalDump / mockModule / makeZeroContext consolidated in
+    // TestHelpers.swift (#10).
 
     // MARK: - 1. TextReporter verbose path
 
@@ -51,9 +20,9 @@ struct LegacyCoverageGapTests {
         // test silently skipped via `try #require`. Build a synthetic
         // dump that exercises the register-print + memory-regions
         // branches of TextReporter.generateReport(verbose: true).
-        var dump = Self.makeMinimalDump()
+        var dump = makeMinimalDump()
 
-        let context = Self.makeZeroContext()
+        let context = makeZeroContext()
         var thread = ThreadInfo(
             id: 1,
             stack: MinidumpMemoryDescriptor(startOfMemoryRange: 0, dataSize: 0, rva: 0),
@@ -95,9 +64,9 @@ struct LegacyCoverageGapTests {
         // against a dump with no modules, so escapeCSV's comma path
         // never fired. Inject a module whose name contains a comma
         // and verify RFC-4180 quoting wraps the field.
-        var dump = Self.makeMinimalDump()
+        var dump = makeMinimalDump()
         dump.moduleList = ModuleList(modules: [
-            Self.makeModule(name: "foo, bar.dll", base: 0x40000000)
+            mockModule(name: "foo, bar.dll", base: 0x40000000)
         ])
 
         let csv = CSVExporter.generateCSV(from: dump)
@@ -129,9 +98,9 @@ struct LegacyCoverageGapTests {
         // sites would not have been caught. Cover three sinks:
         // body content (<script>), attribute context (" breakout),
         // and standalone & (must not double-encode).
-        var dump = Self.makeMinimalDump()
+        var dump = makeMinimalDump()
         dump.moduleList = ModuleList(modules: [
-            Self.makeModule(
+            mockModule(
                 name: "<script>alert(1)</script>\" onerror=\"alert(2)\" & raw",
                 base: 0x50000000
             )
@@ -163,7 +132,7 @@ struct LegacyCoverageGapTests {
         // ThreadList. CrashAnalyzer.analyze() guards on
         // `MinidumpParser.faultingThread(in: dump) != nil` and returns
         // nil otherwise — assert that exact contract.
-        var dump = Self.makeMinimalDump()
+        var dump = makeMinimalDump()
 
         dump.exception = ExceptionInfo(
             threadId: 99,                      // not in ThreadList

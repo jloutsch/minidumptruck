@@ -4,18 +4,7 @@ import Testing
 
 /// Build a minimal valid minidump body so the tests can construct a real
 /// `ParsedMinidump` for the `.openInPlace` case.
-private func makeMinimalMinidumpBytes() -> Data {
-    var d = Data(repeating: 0, count: 32)
-    func w32(_ v: UInt32, _ o: Int) { for i in 0..<4 { d[o+i] = UInt8((v >> (i*8)) & 0xFF) } }
-    func w16(_ v: UInt16, _ o: Int) { d[o] = UInt8(v & 0xFF); d[o+1] = UInt8((v >> 8) & 0xFF) }
-    w32(0x504D444D, 0)
-    w16(0xA793, 4)
-    w32(0, 8)
-    w32(32, 12)
-    w32(0, 16)
-    w32(1700000000, 20)
-    return d
-}
+// makeMinimalMinidumpBytes() consolidated in TestHelpers.swift (#10).
 
 @Suite("WelcomeRouter")
 struct WelcomeRouterTests {
