@@ -421,7 +421,15 @@ public struct HTMLExporter: Sendable {
     // MARK: - Utilities
 
     private static func escapeHTML(_ string: String) -> String {
+        // Strip ANSI escapes, null bytes, bidi formatting marks, zero-
+        // width chars BEFORE HTML entity encoding. Without this,
+        // dump-sourced module/version/thread name fields would ship
+        // raw \x1b / \u{202E} into the HTML output — terminal-aware
+        // viewers (less, cat <file.html>) would interpret escapes,
+        // and rendered HTML can be visually misleading via RTL
+        // overrides. Entity-encoding does not touch these chars.
         string
+            .sanitizedForOutput()
             .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")

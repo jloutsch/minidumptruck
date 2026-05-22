@@ -168,7 +168,15 @@ public struct CSVExporter: Sendable {
     // MARK: - Utilities
 
     private static func escapeCSV(_ field: String) -> String {
-        var result = field
+        // Strip control chars, bidi marks, zero-width chars BEFORE
+        // CSV-specific handling. Without this, a dump-sourced module
+        // name containing \x1b[2J or U+202E ships into the CSV file
+        // and triggers the embedded sequence when the file is cat'd
+        // or opened in a terminal-aware viewer. The sanitizer also
+        // strips \n and \r, so a crafted field can no longer break
+        // out of its row by embedding line breaks — the existing
+        // RFC-4180 quoting below becomes a defense-in-depth layer.
+        var result = field.sanitizedForOutput()
 
         // CSV injection protection: prefix formula-triggering characters with a single quote
         // to prevent Excel/Sheets from interpreting fields as formulas

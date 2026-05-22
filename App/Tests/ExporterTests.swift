@@ -209,6 +209,30 @@ struct HTMLExporterTests {
         let html = HTMLExporter.generateReport(from: dump, analysis: nil)
         #expect(html.contains("Faulting"))
     }
+
+    @Test func htmlStripsAnsiAndBidiFromFileName() throws {
+        let url = Self.testFile("test.dmp")
+        try #require(FileManager.default.fileExists(atPath: url.path))
+
+        let data = try Data(contentsOf: url)
+        let dump = try MinidumpParser.parse(data: data)
+        // A crafted "filename" carrying ANSI escapes + RTL override +
+        // null byte. The HTML output must not contain any of these
+        // raw bytes — escapeHTML strips them before entity encoding.
+        let html = HTMLExporter.generateReport(
+            from: dump,
+            analysis: nil,
+            fileName: "evil\u{001B}[2J\u{202E}\u{0000}.dmp"
+        )
+
+        #expect(!html.contains("\u{001B}"))
+        #expect(!html.contains("\u{202E}"))
+        #expect(!html.contains("\u{0000}"))
+        // Non-control parts survive (visible "evil" + ".dmp", plus the
+        // ESC trailer "[2J" as plain text).
+        #expect(html.contains("evil"))
+        #expect(html.contains(".dmp"))
+    }
 }
 
 @Suite("CSV Exporter Tests")
@@ -391,6 +415,35 @@ struct CSVExporterTests {
                 #expect(dataColumnCount == headerColumnCount, "Data row column count (\(dataColumnCount)) should match header (\(headerColumnCount))")
             }
         }
+    }
+
+    @Test func csvExportContainsNoControlChars() throws {
+        // Round-trip a real dump through CSVExporter and verify no raw
+        // C0 control bytes, DEL, C1, or bidi marks survive in the
+        // output. Defense-in-depth: even if a future field is added
+        // without explicit sanitization at its interpolation site, the
+        // escapeCSV chokepoint strips control chars at the boundary.
+        let url = Self.testFile("test.dmp")
+        try #require(FileManager.default.fileExists(atPath: url.path))
+        let data = try Data(contentsOf: url)
+        let dump = try MinidumpParser.parse(data: data)
+        let csv = CSVExporter.generateCSV(from: dump)
+
+        // ESC, NUL, RTL override, ZWSP — none of these should appear.
+        // TAB / LF / CR / BOM are intentionally permitted: CSV uses LF
+        // as row separator and prepends BOM at file start.
+        let disallowed: (UInt32) -> Bool = { v in
+            // C0 controls except TAB (0x09), LF (0x0A), CR (0x0D)
+            if v < 0x20 && v != 0x09 && v != 0x0A && v != 0x0D { return true }
+            if v == 0x7F { return true }                    // DEL
+            if v >= 0x80 && v <= 0x9F { return true }       // C1
+            if (0x202A...0x202E).contains(v) { return true } // bidi embed/override
+            if (0x2066...0x2069).contains(v) { return true } // bidi isolates
+            if (0x200B...0x200D).contains(v) { return true } // ZWSP/ZWNJ/ZWJ
+            return false
+        }
+        #expect(!csv.unicodeScalars.contains { disallowed($0.value) },
+                "CSV output should contain no control or bidi chars (TAB / LF / CR / BOM allowed)")
     }
 
     @Test func csvInjectionProtection() {
