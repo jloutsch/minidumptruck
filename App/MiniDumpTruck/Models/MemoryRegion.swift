@@ -210,9 +210,16 @@ public struct Memory64List: Sendable, Codable {
         // Each descriptor is 16 bytes: StartOfMemoryRange (8) + DataSize (8)
         for i in 0..<rangeCount {
             let descriptorOffset = offset + 16 + (i * 16)
+            // The outer `descriptorsEnd <= data.count` guard makes the
+            // 8-byte reads guaranteed in-bounds, so this branch is
+            // unreachable in practice. Return nil instead of `continue`
+            // to prevent silent dataOffset desync if the outer guard
+            // ever loosens — a `continue` here would advance the loop
+            // without bumping `dataOffset`, causing every later region
+            // to point at the wrong file bytes.
             guard let startAddress = data.readUInt64(at: descriptorOffset),
                   let dataSize = data.readUInt64(at: descriptorOffset + 8)
-            else { continue }
+            else { return nil }
 
             let region = MemoryRegion(
                 baseAddress: startAddress,

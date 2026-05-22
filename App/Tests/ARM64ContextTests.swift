@@ -2,19 +2,6 @@ import Foundation
 import Testing
 @testable import MiniDumpTruckCore
 
-private extension Data {
-    mutating func writeLEUInt32(_ value: UInt32, at offset: Int) {
-        for i in 0..<4 {
-            self[offset + i] = UInt8((value >> (i * 8)) & 0xFF)
-        }
-    }
-    mutating func writeLEUInt64(_ value: UInt64, at offset: Int) {
-        for i in 0..<8 {
-            self[offset + i] = UInt8((value >> (i * 8)) & 0xFF)
-        }
-    }
-}
-
 /// Build a synthetic `CONTEXT_ARM64` (912-byte) blob with the given
 /// register values populated. Fields not passed are zero, which is what
 /// the on-disk format would carry for "unset / not captured".

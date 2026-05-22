@@ -8,19 +8,6 @@ import Testing
 /// (c) ARM64-specific exporter output assertions, and
 /// (d) Codable round-trip locking the context schema.
 
-private extension Data {
-    mutating func writeLEUInt16(_ value: UInt16, at offset: Int) {
-        self[offset]     = UInt8(value & 0xFF)
-        self[offset + 1] = UInt8((value >> 8) & 0xFF)
-    }
-    mutating func writeLEUInt32(_ value: UInt32, at offset: Int) {
-        for i in 0..<4 { self[offset + i] = UInt8((value >> (i * 8)) & 0xFF) }
-    }
-    mutating func writeLEUInt64(_ value: UInt64, at offset: Int) {
-        for i in 0..<8 { self[offset + i] = UInt8((value >> (i * 8)) & 0xFF) }
-    }
-}
-
 /// Build a complete synthetic ARM64 minidump:
 /// header + stream directory + Exception + ThreadList + ModuleList +
 /// Memory64List + a 912-byte CONTEXT_ARM64 with the supplied register
@@ -45,10 +32,16 @@ private func makeARM64SyntheticDump(
     moduleSize: UInt32 = 0x10_0000,
     stackBase: UInt64 = 0x0008_0000,
     stackSize: UInt32 = 0x1_0000,
-    stackData: Data? = nil
+    stackData: Data? = nil,
+    /// Extra readable bytes appended to the Memory64 region BEYOND the
+    /// declared `thread.stack` range. Used by tests that need to plant
+    /// data at addresses the walker's range guard must reject — so a
+    /// regression that removes the guard would surface a frame, instead
+    /// of failing only because the memory reader returns nil.
+    memoryExtraBytes: UInt32 = 0
 ) throws -> ParsedMinidump {
-    precondition(stackData == nil || stackData!.count <= Int(stackSize),
-                 "stackData must fit inside the declared stack region")
+    precondition(stackData == nil || stackData!.count <= Int(stackSize) + Int(memoryExtraBytes),
+                 "stackData must fit inside the declared memory region")
     let exAddr = exceptionAddress ?? pc
 
     let headerSize = 32
@@ -63,7 +56,8 @@ private func makeARM64SyntheticDump(
     let contextRva = moduleNameStart + UInt32(moduleNameBytes) + 4  // align
     let m64Rva = contextRva + UInt32(ARM64Context.size)
     let m64DataStart = m64Rva + 16 + 16  // header + 1 descriptor
-    let totalSize = Int(m64DataStart) + Int(stackSize)
+    let memoryRegionSize = stackSize + memoryExtraBytes
+    let totalSize = Int(m64DataStart) + Int(memoryRegionSize)
 
     var data = Data(repeating: 0, count: totalSize)
 
@@ -147,12 +141,13 @@ private func makeARM64SyntheticDump(
         data.writeLEUInt16(u, at: nameOff + 4 + i * 2)
     }
 
-    // Memory64List
+    // Memory64List — region may extend past thread.stack to support
+    // range-guard tests (see `memoryExtraBytes`).
     let m64Off = Int(m64Rva)
     data.writeLEUInt64(1, at: m64Off)
     data.writeLEUInt64(UInt64(m64DataStart), at: m64Off + 8)
     data.writeLEUInt64(stackBase, at: m64Off + 16)
-    data.writeLEUInt64(UInt64(stackSize), at: m64Off + 24)
+    data.writeLEUInt64(UInt64(memoryRegionSize), at: m64Off + 24)
 
     if let stackData {
         data.replaceSubrange(Int(m64DataStart)..<(Int(m64DataStart) + stackData.count),
@@ -314,36 +309,47 @@ struct ARM64FrameChainTests {
     }
 
     @Test func fpOutsideStackRangeIsRejected() throws {
+        // Plant a valid AAPCS64 frame record at an address that's INSIDE
+        // the Memory64 region (so the dump reader returns valid bytes)
+        // but OUTSIDE the declared `thread.stack` range (so the walker's
+        // range guard must reject it). Round-1 review caught the prior
+        // version of this test passing only because the memory reader
+        // returned nil — meaning the range guard wasn't actually under
+        // test.
         let stackBase: UInt64 = 0x0008_0000
-        let stackSize: UInt32 = 0x1_0000
+        let stackSize: UInt32 = 0x1_0000      // declared thread.stack
+        let extraBytes: UInt32 = 0x2_0000     // Memory64 covers past stack
         let moduleBase: UInt64 = 0x7FF0_0000_0000
         let lr0 = moduleBase + 0x100
 
-        // FP points well above the captured stack range. A buggy walker
-        // that skipped the range check would happily dereference it
-        // (the dump-memory reader would simply return nil) — assert
-        // we don't produce a frame from it.
-        var stack = Data(repeating: 0, count: Int(stackSize))
-        // Plant garbage that looks like a frame record, in case the
-        // dump reader somehow synthesizes it.
-        stack.writeLEUInt64(0, at: 0)
-        stack.writeLEUInt64(lr0, at: 8)
+        // Frame record at offset stackSize+0x100 (= 0x10100) inside the
+        // extended Memory64 region; absolute address = stackBase+0x10100,
+        // which is past stackBase+stackSize. 16-byte aligned.
+        let recordOffset = Int(stackSize) + 0x100
+        var memory = Data(repeating: 0, count: Int(stackSize + extraBytes))
+        memory.writeLEUInt64(0, at: recordOffset)            // savedFP = 0
+        memory.writeLEUInt64(lr0, at: recordOffset + 8)      // savedLR = lr0
 
         let dump = try makeARM64SyntheticDump(
             pc: moduleBase + 0x10,
             sp: stackBase + 0x4,
-            fp: stackBase + UInt64(stackSize) + 0x1000,  // out of range
+            fp: stackBase + UInt64(recordOffset),   // OOR but readable
             lr: 0,
             moduleBase: moduleBase,
             stackBase: stackBase,
             stackSize: stackSize,
-            stackData: stack
+            stackData: memory,
+            memoryExtraBytes: extraBytes
         )
 
         let analysis = try #require(CrashAnalyzer(dump: dump).analyze())
+        // With the range guard active: lr0 is unreachable because the
+        // walker breaks before reading. Without the range guard: the
+        // memory reader DOES return the planted bytes and lr0 surfaces
+        // as a frame. So this test now actually depends on the guard.
         let chainHits = analysis.stackFrames.filter { $0.address == lr0 }
         #expect(chainHits.isEmpty,
-                "FP outside the captured stack range must not produce a frame")
+                "FP outside thread.stack must be rejected by the walker's range guard, even when memory at that address is captured")
     }
 }
 
@@ -374,10 +380,19 @@ struct ARM64ExporterTests {
                 "verbose ARM64 report must print PC=, not RIP=")
         #expect(!report.contains("RIP="),
                 "verbose ARM64 report must not print RIP=")
-        #expect(report.contains("X0=") || report.contains("X1="),
-                "verbose ARM64 report must include X-register row, not RAX/RBX")
+        // Each of X0–X3 must individually appear — a regression that
+        // dropped any one would have passed the previous `||` form
+        // because at least one sibling remained.
+        #expect(report.contains("X0="),
+                "verbose ARM64 report must include X0=")
+        #expect(report.contains("X1="),
+                "verbose ARM64 report must include X1=")
+        #expect(report.contains("X2="),
+                "verbose ARM64 report must include X2=")
+        #expect(report.contains("X3="),
+                "verbose ARM64 report must include X3=")
         #expect(!report.contains("RAX="),
-                "verbose ARM64 report must not include RAX=")
+                "verbose ARM64 report must not include x64 RAX= row")
     }
 
     @Test func htmlExporterUsesCPSRNotRFLAGS() throws {
@@ -418,5 +433,68 @@ struct ThreadContextCodableTests {
         let arm: ThreadContext = makeZeroARM64Context()
         #expect(amd != arm,
                 "different enum cases must compare unequal even when zero-initialized")
+    }
+
+    @Test func populatedARM64ContextRoundTripsAllFields() throws {
+        // Populate every relevant field with a unique value so a future
+        // Codable regression that drops a CodingKey (e.g. `vRegs` from
+        // ARM64Context, or `xmm15` from AMD64Context) fails this test.
+        // Zero-initialized round-trips wouldn't catch dropped Optionals
+        // — the encoded form omits nil-valued Optionals and the
+        // decoded form re-defaults them to nil, so the values match.
+        var data = Data(repeating: 0, count: ARM64Context.size)
+        data.writeLEUInt32(0x4, at: 0)            // contextFlags: FP-state set
+        data.writeLEUInt32(0x4000_0000, at: 4)     // cpsr: Z flag
+        for i in 0..<31 {
+            data.writeLEUInt64(0xA000_0000_0000_0000 | UInt64(i),
+                               at: 8 + i * 8)
+        }
+        data.writeLEUInt64(0x1234_5678_9ABC_DEF0, at: 256)   // sp
+        data.writeLEUInt64(0xFEDC_BA98_7654_3210, at: 264)   // pc
+        for i in 0..<32 {
+            let lo: UInt64 = 0xC000_0000_0000_0000 | UInt64(i)
+            let hi: UInt64 = 0xD000_0000_0000_0000 | UInt64(i)
+            data.writeLEUInt64(lo, at: 272 + i * 16)
+            data.writeLEUInt64(hi, at: 272 + i * 16 + 8)
+        }
+        data.writeLEUInt32(0x1234_5678, at: 784)
+        data.writeLEUInt32(0x9ABC_DEF0, at: 788)
+        let arm = ARM64Context(from: data, at: 0)!
+        let original = ThreadContext.arm64(arm)
+
+        let encoded = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(ThreadContext.self, from: encoded)
+
+        #expect(decoded == original,
+                "populated ARM64 context must round-trip with all 31 X-regs, 32 V-regs, and FP control regs intact")
+    }
+
+    @Test func encodedJSONHasArchDiscriminator() throws {
+        // Pin the explicit schema. If someone refactors ThreadContext's
+        // Codable impl back to auto-synthesized, this test detects the
+        // schema break before stored documents start failing to decode.
+        let amd = makeZeroContext()
+        let encodedAMD = try JSONEncoder().encode(amd)
+        let jsonAMD = try JSONSerialization.jsonObject(with: encodedAMD) as? [String: Any]
+        #expect(jsonAMD?["arch"] as? String == "amd64",
+                "AMD64 thread context must serialize with an `arch: amd64` discriminator")
+        #expect(jsonAMD?["payload"] != nil,
+                "AMD64 thread context must carry payload under `payload` key")
+
+        let arm = makeZeroARM64Context()
+        let encodedARM = try JSONEncoder().encode(arm)
+        let jsonARM = try JSONSerialization.jsonObject(with: encodedARM) as? [String: Any]
+        #expect(jsonARM?["arch"] as? String == "arm64")
+        #expect(jsonARM?["payload"] != nil)
+    }
+
+    @Test func decodesUnknownArchitectureThrows() throws {
+        // A document written by a future version with a third arch
+        // ("x86") must fail decode cleanly rather than silently
+        // mis-classifying.
+        let json = #"{"arch":"x86","payload":{}}"#.data(using: .utf8)!
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(ThreadContext.self, from: json)
+        }
     }
 }

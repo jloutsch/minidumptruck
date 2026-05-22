@@ -240,9 +240,22 @@ public struct CrashAnalyzer: Sendable {
     ) -> [StackFrame] {
         var frames: [StackFrame] = []
 
-        // Read stack memory - scan from RSP to end of stack, not just dataSize from stack base
-        let availableFromRsp = thread.stack.endAddress > rsp ? Int(thread.stack.endAddress - rsp) : 0
-        let scanSize = min(maxStackScanBytes, availableFromRsp)
+        // Read stack memory - scan from RSP to end of stack, not just dataSize from stack base.
+        //
+        // Clamp the UInt64 delta in UInt64 space BEFORE casting to Int.
+        // `thread.stack.endAddress` saturates to `UInt64.max` when a
+        // malformed dump declares `baseAddress + regionSize` past the
+        // UInt64 ceiling; without the clamp, `Int(UInt64.max - rsp)`
+        // would trap and crash the analyzer (DoS via malicious .dmp).
+        // We never need more than `maxStackScanBytes` so bounding the
+        // UInt64 at that ceiling is safe.
+        let availableFromRsp64: UInt64
+        if thread.stack.endAddress > rsp {
+            availableFromRsp64 = min(thread.stack.endAddress - rsp, UInt64(maxStackScanBytes))
+        } else {
+            availableFromRsp64 = 0
+        }
+        let scanSize = Int(availableFromRsp64)
         guard let stackData = readMemory(at: rsp, size: scanSize) else {
             return frames
         }
@@ -259,8 +272,14 @@ public struct CrashAnalyzer: Sendable {
                     continue
                 }
 
-                // Check if address is in a module
-                if let module = dump.moduleList?.module(containing: potentialAddress) {
+                // Check if address is in a module. Explicitly verify
+                // `potentialAddress >= module.baseAddress` before the
+                // UInt64 subtraction — `module(containing:)` is
+                // presumed to guarantee this, but the subtraction is
+                // a footgun if that contract is ever loosened (e.g.
+                // overlapping modules with order-dependent matches).
+                if let module = dump.moduleList?.module(containing: potentialAddress),
+                   potentialAddress >= module.baseAddress {
                     let offsetInModule = potentialAddress - module.baseAddress
 
                     // Skip if at very start of module (unlikely to be return addr)

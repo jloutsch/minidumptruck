@@ -31,6 +31,44 @@ public enum ThreadContext: Sendable, Codable, Equatable {
     case amd64(AMD64Context)
     case arm64(ARM64Context)
 
+    /// Explicit JSON schema so a future case rename (e.g. `.amd64` →
+    /// `.x86_64`) doesn't silently break stored documents. Encoded as
+    /// `{"arch": "amd64", "payload": <AMD64Context>}`. Adding a new
+    /// architecture means adding a new `arch` literal — old documents
+    /// keep decoding.
+    private enum CodingKeys: String, CodingKey {
+        case arch, payload
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let arch = try container.decode(String.self, forKey: .arch)
+        switch arch {
+        case "amd64":
+            self = .amd64(try container.decode(AMD64Context.self, forKey: .payload))
+        case "arm64":
+            self = .arm64(try container.decode(ARM64Context.self, forKey: .payload))
+        default:
+            throw DecodingError.dataCorruptedError(
+                forKey: .arch,
+                in: container,
+                debugDescription: "Unknown ThreadContext architecture: \(arch)"
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .amd64(let amd):
+            try container.encode("amd64", forKey: .arch)
+            try container.encode(amd, forKey: .payload)
+        case .arm64(let arm):
+            try container.encode("arm64", forKey: .arch)
+            try container.encode(arm, forKey: .payload)
+        }
+    }
+
     /// Parse a context record at the given offset, using `dataSize` to
     /// pick the architecture-specific layout.
     ///

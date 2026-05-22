@@ -7,6 +7,26 @@ import Foundation
 import Testing
 @testable import MiniDumpTruckCore
 
+// MARK: - Little-endian byte writers for synthetic binary fixtures
+//
+// Tests across the suite build synthetic minidump bytes by writing
+// fields at known offsets. Multiple files used to define near-identical
+// private extensions for this — consolidated here to a single internal
+// surface that any test file in the target can use without import.
+
+extension Data {
+    mutating func writeLEUInt16(_ value: UInt16, at offset: Int) {
+        self[offset]     = UInt8(value & 0xFF)
+        self[offset + 1] = UInt8((value >> 8) & 0xFF)
+    }
+    mutating func writeLEUInt32(_ value: UInt32, at offset: Int) {
+        for i in 0..<4 { self[offset + i] = UInt8((value >> (i * 8)) & 0xFF) }
+    }
+    mutating func writeLEUInt64(_ value: UInt64, at offset: Int) {
+        for i in 0..<8 { self[offset + i] = UInt8((value >> (i * 8)) & 0xFF) }
+    }
+}
+
 // MARK: - Raw dump bytes
 
 /// Smallest valid minidump byte buffer: 32-byte header with MDMP
