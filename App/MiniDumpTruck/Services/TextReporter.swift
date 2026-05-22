@@ -33,7 +33,7 @@ public struct TextReporter: Sendable {
             lines.append("-" .repeated(72))
             for warning in dump.parseWarnings {
                 let stream = warning.streamType?.displayName ?? "Unknown"
-                lines.append("  [!] \(stream): \(warning.message)")
+                lines.append("  [!] \(stream): \(warning.message.sanitizedForOutput())")
             }
             lines.append("")
         }
@@ -43,15 +43,19 @@ public struct TextReporter: Sendable {
             lines.append("-" .repeated(72))
             lines.append("SYSTEM INFORMATION")
             lines.append("-" .repeated(72))
-            lines.append("  OS: \(sysInfo.windowsVersionName) (\(sysInfo.osVersionString))")
+            // Sanitize dump-sourced strings before emitting to a
+            // terminal — strips ANSI escapes / bidi marks / null bytes
+            // that a crafted dump could embed in module names, version
+            // strings, etc.
+            lines.append("  OS: \(sysInfo.windowsVersionName) (\(sysInfo.osVersionString.sanitizedForOutput()))")
             lines.append("  Architecture: \(sysInfo.processorArchitecture.displayName)")
             lines.append("  Processors: \(sysInfo.numberOfProcessors)")
             lines.append("  Product Type: \(sysInfo.productType.displayName)")
             if let csd = sysInfo.csdVersion, !csd.isEmpty {
-                lines.append("  Service Pack: \(csd)")
+                lines.append("  Service Pack: \(csd.sanitizedForOutput())")
             }
             if sysInfo.cpuInfo.isX86 {
-                lines.append("  CPU Vendor: \(sysInfo.cpuInfo.vendorString)")
+                lines.append("  CPU Vendor: \(sysInfo.cpuInfo.vendorString.sanitizedForOutput())")
                 lines.append("  CPU Family/Model: Family \(sysInfo.cpuInfo.displayFamily), Model \(sysInfo.cpuInfo.displayModel), Stepping \(sysInfo.cpuInfo.stepping)")
             }
             lines.append("")
@@ -76,13 +80,13 @@ public struct TextReporter: Sendable {
                     lines.append("  Processor Frequency: \(freq)")
                 }
                 if let integrity = miscInfo.integrityLevelDescription {
-                    lines.append("  Integrity Level: \(integrity)")
+                    lines.append("  Integrity Level: \(integrity.sanitizedForOutput())")
                 }
                 if let tz = miscInfo.timeZoneName {
-                    lines.append("  Timezone: \(tz)")
+                    lines.append("  Timezone: \(tz.sanitizedForOutput())")
                 }
                 if let build = miscInfo.buildString {
-                    lines.append("  Build String: \(build)")
+                    lines.append("  Build String: \(build.sanitizedForOutput())")
                 }
                 lines.append("")
             }
@@ -97,7 +101,7 @@ public struct TextReporter: Sendable {
             lines.append("  Description: \(exception.exceptionDescription)")
             lines.append("  Address: \(String(format: "0x%016llX", exception.exceptionAddress))")
             if let module = dump.moduleList?.module(containing: exception.exceptionAddress) {
-                lines.append("  Module: \(module.shortName)")
+                lines.append("  Module: \(module.shortName.sanitizedForOutput())")
             }
             lines.append("  Thread ID: \(exception.threadId)")
             if let details = exception.accessViolationDetails {
@@ -116,16 +120,21 @@ public struct TextReporter: Sendable {
             lines.append("  Exception: \(summary.exceptionType)")
             lines.append("  Faulting Address: \(String(format: "0x%016llX", summary.faultingAddress))")
             if let module = summary.faultingModule {
-                lines.append("  Faulting Module: \(module.shortName)")
+                lines.append("  Faulting Module: \(module.shortName.sanitizedForOutput())")
             }
-            lines.append("  Probable Cause: \(summary.probableCause)")
-            lines.append("  Recommendation: \(summary.recommendation)")
+            // probableCause/recommendation are composed by CrashAnalyzer
+            // and embed module.shortName, which is dump-sourced. Sanitize
+            // here as well as at the direct shortName interpolation sites
+            // so ANSI escapes in module names can't sneak in via the
+            // analyzer's generated text.
+            lines.append("  Probable Cause: \(summary.probableCause.sanitizedForOutput())")
+            lines.append("  Recommendation: \(summary.recommendation.sanitizedForOutput())")
             lines.append("")
 
             if let blame = analysis.blameModule {
-                lines.append("  BLAMED MODULE: \(blame.module.shortName)")
+                lines.append("  BLAMED MODULE: \(blame.module.shortName.sanitizedForOutput())")
                 if let version = blame.module.version {
-                    lines.append("  Version: \(version.fileVersion)")
+                    lines.append("  Version: \(version.fileVersion.sanitizedForOutput())")
                 }
                 lines.append("  Reason: \(blame.reasonDescription)")
                 lines.append("")
@@ -148,7 +157,7 @@ public struct TextReporter: Sendable {
                     case .low: confStr = "L"
                     }
                     let addr = String(format: "0x%016llX", frame.address)
-                    lines.append("    #\(String(format: "%2d", i)) [\(typeStr)] \(addr) \(frame.displayAddress) [\(confStr)]")
+                    lines.append("    #\(String(format: "%2d", i)) [\(typeStr)] \(addr) \(frame.displayAddress.sanitizedForOutput()) [\(confStr)]")
                 }
                 lines.append("")
             }
@@ -164,7 +173,7 @@ public struct TextReporter: Sendable {
                 let name = dump.threadNames?.name(for: thread.id)
                 let isFaulting = thread.id == dump.exception?.threadId
                 var threadLine = "  Thread \(thread.id)"
-                if let name = name { threadLine += " (\(name))" }
+                if let name = name { threadLine += " (\(name.sanitizedForOutput()))" }
                 if isFaulting { threadLine += " *FAULTING*" }
                 threadLine += " - \(thread.priorityDescription)"
                 lines.append(threadLine)
@@ -187,7 +196,7 @@ public struct TextReporter: Sendable {
                 let addr = String(format: "0x%016llX", module.baseAddress)
                 let size = ByteCountFormatter.string(fromByteCount: Int64(module.sizeOfImage), countStyle: .file)
                 let version = module.version?.fileVersion ?? ""
-                lines.append("  \(addr) \(module.shortName) (\(size)) \(version)")
+                lines.append("  \(addr) \(module.shortName.sanitizedForOutput()) (\(size)) \(version.sanitizedForOutput())")
             }
             lines.append("")
         }

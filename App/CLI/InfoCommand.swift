@@ -11,6 +11,9 @@ struct InfoCommand: ParsableCommand {
     @Argument(help: "Path to a .dmp file.")
     var path: String
 
+    @Option(name: .long, help: "Maximum dump file size in bytes (default 2 GB).")
+    var maxFileSize: Int64 = CLIIO.defaultMaxFileSize
+
     mutating func run() throws {
         let url = URL(fileURLWithPath: path)
 
@@ -18,13 +21,23 @@ struct InfoCommand: ParsableCommand {
             throw CLIError.fileNotFound(path)
         }
 
-        let data = try Data(contentsOf: url)
-        let dump = try MinidumpParser.parse(data: data)
+        do {
+            let data = try CLIIO.readDump(at: url, maxSize: maxFileSize)
+            let dump: ParsedMinidump
+            do {
+                dump = try MinidumpParser.parse(data: data)
+            } catch {
+                throw CLIError.parseError(error.localizedDescription)
+            }
 
-        printHeader(dump)
-        printSystemInfo(dump)
-        printException(dump)
-        printWarnings(dump)
+            printHeader(dump)
+            printSystemInfo(dump)
+            printException(dump)
+            printWarnings(dump)
+        } catch let cliError as CLIError {
+            FileHandle.standardError.write(Data("\(cliError.description)\n".utf8))
+            throw cliError.exitCode
+        }
     }
 
     private func printHeader(_ dump: ParsedMinidump) {
@@ -43,8 +56,11 @@ struct InfoCommand: ParsableCommand {
             return
         }
 
+        // Sanitize attacker-influenced strings (osVersionString may
+        // include service-pack text from the dump) before writing to
+        // a terminal — strips ANSI escapes and bidi overrides.
         print("System Info:")
-        print("  OS: \(sys.osVersionString)")
+        print("  OS: \(sys.osVersionString.sanitizedForOutput())")
         print("  Architecture: \(sys.processorArchitecture.displayName)")
         print("  Processors: \(sys.numberOfProcessors)")
         print("  Build: \(sys.buildNumber)")
@@ -74,7 +90,7 @@ struct InfoCommand: ParsableCommand {
         print("Parse Warnings (\(dump.parseWarnings.count)):")
         for warning in dump.parseWarnings {
             let streamName = warning.streamType.map { "\($0)" } ?? "unknown"
-            print("  [\(streamName)] \(warning.message)")
+            print("  [\(streamName)] \(warning.message.sanitizedForOutput())")
         }
     }
 }

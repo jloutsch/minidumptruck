@@ -194,6 +194,34 @@ struct JSONExporterTests {
         #expect(parsed["parseWarnings"] != nil)
     }
 
+    // MARK: - Error fallback
+
+    @Test func errorFallbackProducesValidJsonWithQuotesInMessage() throws {
+        // Adversarial error description: contains both a double-quote
+        // and a backslash. The old string-interpolation fallback would
+        // emit malformed JSON that breaks downstream parsers.
+        struct WeirdError: LocalizedError {
+            var errorDescription: String? { "broke at \"path\\to\\file\" with \"\\n\" tab" }
+        }
+        let json = JSONExporter.encodeErrorFallback(WeirdError())
+
+        // Must round-trip through JSONSerialization — proves it's valid.
+        let parsed = try JSONSerialization.jsonObject(with: Data(json.utf8)) as! [String: Any]
+        let message = try #require(parsed["error"] as? String)
+        #expect(message.contains("path"))
+        #expect(message.contains("file"))
+    }
+
+    @Test func errorFallbackHandlesControlChars() throws {
+        struct CtrlError: LocalizedError {
+            var errorDescription: String? { "tab:\there\nnewline:\u{0001}" }
+        }
+        let json = JSONExporter.encodeErrorFallback(CtrlError())
+        // JSONEncoder escapes control chars correctly — round-trip succeeds.
+        let parsed = try JSONSerialization.jsonObject(with: Data(json.utf8)) as! [String: Any]
+        #expect(parsed["error"] != nil)
+    }
+
     // MARK: - Helpers
 
     private func createMinimalDump() -> ParsedMinidump {
