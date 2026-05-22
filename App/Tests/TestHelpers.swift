@@ -1,7 +1,7 @@
-// Shared test fixtures. Closes the long-standing duplication tracked
-// in #10. New tests should pull helpers from here rather than copy-
-// pasting inline equivalents. Helpers are file-scope so every file in
-// the test target can use them without import gymnastics.
+// Shared test fixtures for the MiniDumpTruck test target. Helpers are
+// file-scope so any test file in the target can use them without
+// imports. Each helper is value-type-safe — concurrent tests get
+// independent instances.
 
 import Foundation
 import Testing
@@ -9,9 +9,8 @@ import Testing
 
 // MARK: - Raw dump bytes
 
-/// Return the smallest valid minidump byte buffer (32-byte header with
-/// MDMP signature, 0 streams, empty stream directory at offset 32).
-/// Useful for tests that need to exercise the parser entry point.
+/// Smallest valid minidump byte buffer: 32-byte header with MDMP
+/// signature, 0 streams, empty stream directory at offset 32.
 func makeMinimalMinidumpBytes() -> Data {
     var d = Data(repeating: 0, count: 32)
     func w32(_ v: UInt32, _ o: Int) { for i in 0..<4 { d[o+i] = UInt8((v >> (i*8)) & 0xFF) } }
@@ -27,39 +26,42 @@ func makeMinimalMinidumpBytes() -> Data {
 
 // MARK: - Parsed-dump skeleton
 
-/// Return a `ParsedMinidump` skeleton parsed from
-/// `makeMinimalMinidumpBytes`. Tests can mutate the var properties
-/// (moduleList, threadList, etc.) before passing to exporters or the
-/// analyzer. `ParsedMinidump` is a value type, so each call returns a
-/// fresh instance — safe to mutate without cross-test contamination.
+/// `ParsedMinidump` skeleton parsed from `makeMinimalMinidumpBytes`.
+/// Tests can mutate the var properties (moduleList, threadList, etc.)
+/// before passing to exporters or the analyzer. `ParsedMinidump` is a
+/// value type, so each call returns a fresh instance.
 func makeMinimalDump() -> ParsedMinidump {
     let data = makeMinimalMinidumpBytes()
-    let header = MinidumpHeader(from: data)!
-    let streamDir = StreamDirectory(from: data, header: header)!
+    guard let header = MinidumpHeader(from: data) else {
+        fatalError("makeMinimalDump: MinidumpHeader.init regressed against the minimal-header layout in makeMinimalMinidumpBytes; update one or the other.")
+    }
+    guard let streamDir = StreamDirectory(from: data, header: header) else {
+        fatalError("makeMinimalDump: StreamDirectory.init regressed against the minimal-header layout; update one or the other.")
+    }
     return ParsedMinidump(header: header, streamDirectory: streamDir, data: data)
 }
 
 // MARK: - Mock models
 
-/// Build a `ModuleInfo` with the given name + base + size. Used by
-/// exporter, symbolicator, and coverage-gap tests.
+/// Build a `ModuleInfo` with the given name + base + size.
 ///
-/// `size: 0x10000` (64 KB) is the default the prior duplicates used —
-/// non-zero, arbitrary, and small enough to fit any test setup. Tests
-/// asserting module-range coverage should override explicitly.
+/// Default 64 KB size is arbitrary but non-zero; override for tests
+/// asserting module-range coverage.
 func makeModule(name: String, base: UInt64, size: UInt32 = 0x10000) -> ModuleInfo {
     var bytes = Data()
     bytes.append(contentsOf: withUnsafeBytes(of: base.littleEndian) { Array($0) })
     bytes.append(contentsOf: withUnsafeBytes(of: size.littleEndian) { Array($0) })
     bytes.append(contentsOf: [UInt8](repeating: 0, count: ModuleInfo.size - 12))
-    var m = ModuleInfo(from: bytes, at: 0)!
+    guard var m = ModuleInfo(from: bytes, at: 0) else {
+        fatalError("makeModule: ModuleInfo.init regressed against the minimal byte layout; update the helper.")
+    }
     m.setName(name)
     return m
 }
 
-/// Return a zero-filled but structurally valid `ThreadContext` (RIP,
-/// registers, flags all zero). Tests asserting context-shape can use
-/// this without round-tripping through a real dump.
+/// Zero-filled but structurally valid `ThreadContext` — all registers
+/// and flags zero. Tests asserting context-shape can use this without
+/// round-tripping through a real dump.
 func makeZeroContext() -> ThreadContext {
     let buffer = Data(repeating: 0, count: ThreadContext.size)
     guard let ctx = ThreadContext(from: buffer, at: 0) else {
@@ -71,7 +73,7 @@ func makeZeroContext() -> ThreadContext {
 // MARK: - Self-validation
 
 /// Pin the contract of the byte-layout helpers. If parser-side
-/// validation tightens (e.g., a new required field), this test fails
+/// validation tightens (e.g., a new required field), this suite fails
 /// first with one clear diagnostic — instead of every consumer of the
 /// helpers failing simultaneously with cryptic downstream errors.
 @Suite("TestHelpers self-validation")
@@ -82,20 +84,30 @@ struct TestHelpersSelfValidation {
         #expect(dump.streamDirectory.entries.isEmpty)
     }
 
-    @Test func minimalDumpSkeletonShape() {
+    @Test func minimalDumpHeaderShape() {
+        // Exercises the two force-unwraps inside makeMinimalDump. If
+        // MinidumpHeader or StreamDirectory init regresses against the
+        // 32-byte layout, this test catches it before downstream
+        // consumers crash with opaque "Unexpectedly found nil."
         let dump = makeMinimalDump()
+        #expect(dump.header.version == MinidumpHeader.formatVersion)
+        #expect(dump.header.streamDirectoryRva == 32)
+        #expect(dump.header.numberOfStreams == 0)
         #expect(dump.streamDirectory.entries.isEmpty)
         #expect(dump.moduleList == nil)
         #expect(dump.threadList == nil)
     }
 
-    @Test func makeModuleSetsName() {
+    @Test func makeModuleSetsNameAndBase() {
         let m = makeModule(name: "test.dll", base: 0x40000000)
-        #expect(m.name.hasSuffix("test.dll") || m.shortName == "test.dll")
+        // setName assigns directly; assert both surfaces explicitly so
+        // a regression that broke either field is pinned.
+        #expect(m.name == "test.dll")
+        #expect(m.shortName == "test.dll")
         #expect(m.baseAddress == 0x40000000)
     }
 
-    @Test func makeZeroContextHasZeroRIP() {
+    @Test func makeZeroContextHasZeroRegisters() {
         let ctx = makeZeroContext()
         #expect(ctx.rip == 0)
         #expect(ctx.rsp == 0)
