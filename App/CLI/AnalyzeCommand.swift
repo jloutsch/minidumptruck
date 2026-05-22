@@ -20,6 +20,9 @@ struct AnalyzeCommand: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "Maximum concurrent analyses for batch mode.")
     var jobs: Int = 4
 
+    @Option(name: .long, help: "Maximum dump file size in bytes (default 2 GB). Files larger than this are skipped.")
+    var maxFileSize: Int64 = CLIIO.defaultMaxFileSize
+
     mutating func run() async throws {
         let url = URL(fileURLWithPath: path)
         var isDir: ObjCBool = false
@@ -28,19 +31,29 @@ struct AnalyzeCommand: AsyncParsableCommand {
             throw CLIError.fileNotFound(path)
         }
 
-        if isDir.boolValue {
-            try await analyzeBatch(directory: url)
-        } else {
-            let exitCode = try analyzeSingle(file: url)
-            if exitCode == 2 {
-                throw ExitCode(2)
+        do {
+            if isDir.boolValue {
+                try await analyzeBatch(directory: url)
+            } else {
+                let exitCode = try analyzeSingle(file: url)
+                if exitCode == 2 {
+                    throw ExitCode(2)
+                }
             }
+        } catch let cliError as CLIError {
+            FileHandle.standardError.write(Data("\(cliError.description)\n".utf8))
+            throw cliError.exitCode
         }
     }
 
     private func analyzeSingle(file: URL) throws -> Int32 {
-        let data = try Data(contentsOf: file)
-        let dump = try MinidumpParser.parse(data: data)
+        let data = try CLIIO.readDump(at: file, maxSize: maxFileSize)
+        let dump: ParsedMinidump
+        do {
+            dump = try MinidumpParser.parse(data: data)
+        } catch {
+            throw CLIError.parseError(error.localizedDescription)
+        }
         let analyzer = CrashAnalyzer(dump: dump)
         let analysis = analyzer.analyze()
 
@@ -69,7 +82,8 @@ struct AnalyzeCommand: AsyncParsableCommand {
 
         let (results, batchSummary) = await BatchAnalyzer.analyze(
             files: files,
-            maxConcurrency: jobs
+            maxConcurrency: jobs,
+            maxFileSize: maxFileSize
         ) { completed, total in
             if !summary {
                 print("  [\(completed)/\(total)] analyzed", terminator: "\r")

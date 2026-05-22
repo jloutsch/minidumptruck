@@ -183,6 +183,33 @@ struct CLITests {
         #expect(result.stderr.contains("File or directory not found"))
     }
 
+    @Test func analyzeCorruptDumpExitsWithCode3() throws {
+        // Parse failure must be distinguishable from "file not found"
+        // (exit 1) and "crash detected" (exit 2).
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-corrupt-\(UUID().uuidString).dmp")
+        try Data(repeating: 0x41, count: 64).write(to: tmp)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let result = try Self.runCLI("analyze", tmp.path)
+
+        #expect(result.exitCode == 3)
+        #expect(result.stderr.contains("Failed to parse minidump"))
+    }
+
+    @Test func analyzeRejectsFileOverMaxSize() throws {
+        // A small dump that's just over the cap should be rejected with
+        // exit code 3 and a clear message — not OOM, not silently read.
+        let url = Self.testFile("test.dmp")
+        try #require(FileManager.default.fileExists(atPath: url.path))
+
+        // test.dmp is ~11 KB; cap to 1024 bytes to trigger the guard.
+        let result = try Self.runCLI("analyze", "--max-file-size", "1024", url.path)
+
+        #expect(result.exitCode == 3)
+        #expect(result.stderr.contains("exceeds maximum size"))
+    }
+
     @Test func analyzeDirectoryWithCorruptFileEmitsStderrLine() throws {
         let good = Self.testFile("test.dmp")
         try #require(FileManager.default.fileExists(atPath: good.path))

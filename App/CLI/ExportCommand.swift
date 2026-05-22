@@ -20,6 +20,9 @@ struct ExportCommand: AsyncParsableCommand {
     @Flag(name: .shortAndLong, help: "Include registers and memory regions (text format).")
     var verbose = false
 
+    @Option(name: .long, help: "Maximum dump file size in bytes (default 2 GB).")
+    var maxFileSize: Int64 = CLIIO.defaultMaxFileSize
+
     mutating func run() async throws {
         let url = URL(fileURLWithPath: path)
         var isDir: ObjCBool = false
@@ -45,16 +48,26 @@ struct ExportCommand: AsyncParsableCommand {
             return
         }
 
-        for file in files {
-            try exportFile(file, to: outputDir)
+        do {
+            for file in files {
+                try exportFile(file, to: outputDir)
+            }
+        } catch let cliError as CLIError {
+            FileHandle.standardError.write(Data("\(cliError.description)\n".utf8))
+            throw cliError.exitCode
         }
 
         print("Exported \(files.count) file(s) to \(outputDir.path)")
     }
 
     private func exportFile(_ file: URL, to outputDir: URL) throws {
-        let data = try Data(contentsOf: file)
-        let dump = try MinidumpParser.parse(data: data)
+        let data = try CLIIO.readDump(at: file, maxSize: maxFileSize)
+        let dump: ParsedMinidump
+        do {
+            dump = try MinidumpParser.parse(data: data)
+        } catch {
+            throw CLIError.parseError(error.localizedDescription)
+        }
         let analyzer = CrashAnalyzer(dump: dump)
         let analysis = analyzer.analyze()
         let baseName = file.deletingPathExtension().lastPathComponent

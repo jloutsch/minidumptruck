@@ -50,7 +50,21 @@ public struct JSONExporter: Sendable {
             let data = try encoder.encode(report)
             return String(data: data, encoding: .utf8) ?? "{}"
         } catch {
-            return "{\"error\": \"Failed to encode report: \(error.localizedDescription)\"}"
+            return encodeErrorFallback(error)
         }
+    }
+
+    /// Build the error-fallback JSON. Routes through JSONEncoder so
+    /// that error messages containing `"`, `\`, or control characters
+    /// still produce valid JSON (the prior string-interpolation
+    /// version emitted malformed output that broke downstream
+    /// `jq` / `json.loads`).
+    static func encodeErrorFallback(_ error: Error) -> String {
+        let fallback = ["error": "Failed to encode report: \(error.localizedDescription)"]
+        if let data = try? JSONEncoder().encode(fallback),
+           let json = String(data: data, encoding: .utf8) {
+            return json
+        }
+        return "{\"error\":\"Failed to encode report\"}"
     }
 }

@@ -59,10 +59,17 @@ public struct BatchSummary: Sendable {
 /// Analyzes multiple crash dump files in parallel
 public struct BatchAnalyzer: Sendable {
 
-    /// Analyze multiple dump files
+    /// Analyze multiple dump files.
+    ///
+    /// `maxFileSize` is an optional cap (in bytes) applied per-file
+    /// before the read. Files above the cap produce a failure outcome
+    /// rather than OOM the process — important in batch mode where
+    /// `maxConcurrency` large dumps could otherwise be in flight at
+    /// once. nil disables the guard.
     public static func analyze(
         files: [URL],
         maxConcurrency: Int = 4,
+        maxFileSize: Int64? = nil,
         progress: @Sendable @escaping (Int, Int) -> Void = { _, _ in }
     ) async -> (results: [BatchResult], summary: BatchSummary) {
         var results: [BatchResult] = []
@@ -77,7 +84,7 @@ public struct BatchAnalyzer: Sendable {
                 let file = files[index]
                 index += 1
                 group.addTask {
-                    await analyzeFile(file)
+                    await analyzeFile(file, maxFileSize: maxFileSize)
                 }
             }
 
@@ -91,7 +98,7 @@ public struct BatchAnalyzer: Sendable {
                     let file = files[index]
                     index += 1
                     group.addTask {
-                        await analyzeFile(file)
+                        await analyzeFile(file, maxFileSize: maxFileSize)
                     }
                 }
             }
@@ -103,8 +110,23 @@ public struct BatchAnalyzer: Sendable {
 
     /// Analyze a single file. Always returns a `BatchResult` — success or
     /// `.failure` with a human-readable reason.
-    private static func analyzeFile(_ url: URL) async -> BatchResult {
+    private static func analyzeFile(_ url: URL, maxFileSize: Int64?) async -> BatchResult {
         let fileName = url.lastPathComponent
+
+        // Pre-flight size check: skip files that exceed the cap rather
+        // than reading them into a Data buffer first.
+        if let cap = maxFileSize,
+           let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let size = attrs[.size] as? Int64,
+           size > cap {
+            let sizeStr = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+            let capStr = ByteCountFormatter.string(fromByteCount: cap, countStyle: .file)
+            return BatchResult(
+                fileName: fileName,
+                outcome: .failure(reason: "file too large (\(sizeStr); limit \(capStr))")
+            )
+        }
+
         do {
             let data = try Data(contentsOf: url)
             let dump = try MinidumpParser.parse(data: data)
