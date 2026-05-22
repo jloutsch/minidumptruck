@@ -261,6 +261,15 @@ public struct ModuleList: Sendable, Codable {
 
     public let modules: [ModuleInfo]
 
+    /// Test-only memberwise init. Production parses via `init?(from:at:)`.
+    /// Preserves the DoS bound the byte-parser enforces so a future
+    /// in-package caller can't construct an out-of-spec ModuleList.
+    internal init(modules: [ModuleInfo]) {
+        precondition(modules.count <= Int(Self.maxModules),
+                     "ModuleList exceeds maxModules cap (\(Self.maxModules))")
+        self.modules = modules
+    }
+
     public init?(from data: Data, at rva: UInt32) {
         let offset = Int(rva)
 

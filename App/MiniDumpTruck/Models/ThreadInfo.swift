@@ -21,6 +21,13 @@ public struct MinidumpMemoryDescriptor: Sendable, Codable {
         self.dataSize = dataSize
         self.rva = rva
     }
+
+    /// Test-only memberwise init.
+    internal init(startOfMemoryRange: UInt64, dataSize: UInt32, rva: UInt32) {
+        self.startOfMemoryRange = startOfMemoryRange
+        self.dataSize = dataSize
+        self.rva = rva
+    }
 }
 
 /// Location descriptor (RVA + size)
@@ -33,6 +40,12 @@ public struct MinidumpLocationDescriptor: Sendable, Codable {
               let rva = data.readUInt32(at: offset + 4)
         else { return nil }
 
+        self.dataSize = dataSize
+        self.rva = rva
+    }
+
+    /// Test-only memberwise init.
+    internal init(dataSize: UInt32, rva: UInt32) {
         self.dataSize = dataSize
         self.rva = rva
     }
@@ -91,6 +104,31 @@ public struct ThreadInfo: Identifiable, Sendable, Codable {
     public mutating func setContext(_ ctx: ThreadContext) {
         self.context = ctx
     }
+
+    /// Test-only memberwise init. `stack` and `contextLocation` have no
+    /// defaults — callers must supply them so a test that passes the
+    /// thread to CrashAnalyzer or stack-walker exercises a realistic
+    /// shape rather than an all-zero descriptor that production never
+    /// produces.
+    internal init(
+        id: UInt32,
+        suspendCount: UInt32 = 0,
+        priorityClass: UInt32 = 0,
+        priority: UInt32 = 0,
+        teb: UInt64 = 0,
+        stack: MinidumpMemoryDescriptor,
+        contextLocation: MinidumpLocationDescriptor,
+        context: ThreadContext? = nil
+    ) {
+        self.id = id
+        self.suspendCount = suspendCount
+        self.priorityClass = priorityClass
+        self.priority = priority
+        self.teb = teb
+        self.stack = stack
+        self.contextLocation = contextLocation
+        self.context = context
+    }
 }
 
 /// Collection of threads from ThreadListStream
@@ -99,6 +137,14 @@ public struct ThreadList: Sendable, Codable {
     public static let maxThreads: UInt32 = 10_000
 
     public let threads: [ThreadInfo]
+
+    /// Test-only memberwise init. Preserves the DoS bound the
+    /// byte-parser enforces (Self.maxThreads).
+    internal init(threads: [ThreadInfo]) {
+        precondition(threads.count <= Int(Self.maxThreads),
+                     "ThreadList exceeds maxThreads cap (\(Self.maxThreads))")
+        self.threads = threads
+    }
 
     public init?(from data: Data, at rva: UInt32) {
         let offset = Int(rva)
