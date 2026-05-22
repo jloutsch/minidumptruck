@@ -15,6 +15,9 @@ import Testing
 // surface that any test file in the target can use without import.
 
 extension Data {
+    mutating func writeLEUInt8(_ value: UInt8, at offset: Int) {
+        self[offset] = value
+    }
     mutating func writeLEUInt16(_ value: UInt16, at offset: Int) {
         self[offset]     = UInt8(value & 0xFF)
         self[offset + 1] = UInt8((value >> 8) & 0xFF)
