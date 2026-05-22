@@ -3,7 +3,8 @@ import MiniDumpTruckCore
 
 /// Modal sheet shown when a zip contains more than one minidump.
 /// Lets the user multi-select which entries to open; each selection
-/// becomes its own window via the standard DocumentGroup open path.
+/// is opened via `NSWorkspace.shared.open` (handled by the App's
+/// `.onOpenURL` route).
 struct ZipPickerView: View {
     let zipName: String
     let entries: [ZipEntry]
