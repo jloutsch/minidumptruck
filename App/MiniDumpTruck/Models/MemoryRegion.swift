@@ -147,6 +147,25 @@ public struct MemoryInfo: Identifiable, Sendable, Codable {
         self.protect = MemoryProtection(rawValue: protect)
         self.type = MemoryType(rawValue: type) ?? .private
     }
+
+    /// Test-only memberwise init.
+    internal init(
+        baseAddress: UInt64,
+        allocationBase: UInt64 = 0,
+        allocationProtect: MemoryProtection = MemoryProtection(rawValue: 0),
+        regionSize: UInt64,
+        state: MemoryState = .commit,
+        protect: MemoryProtection = MemoryProtection(rawValue: 0),
+        type: MemoryType = .private
+    ) {
+        self.baseAddress = baseAddress
+        self.allocationBase = allocationBase
+        self.allocationProtect = allocationProtect
+        self.regionSize = regionSize
+        self.state = state
+        self.protect = protect
+        self.type = type
+    }
 }
 
 /// Collection of memory regions from Memory64ListStream
@@ -319,6 +338,11 @@ public struct MemoryInfoList: Sendable, Codable {
     public static let maxEntries: UInt64 = 1_000_000
 
     public let entries: [MemoryInfo]
+
+    /// Test-only memberwise init. Production parses via `init?(from:at:)`.
+    internal init(entries: [MemoryInfo]) {
+        self.entries = entries
+    }
 
     public init?(from data: Data, at rva: UInt32) {
         let offset = Int(rva)

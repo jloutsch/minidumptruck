@@ -261,6 +261,11 @@ public struct ModuleList: Sendable, Codable {
 
     public let modules: [ModuleInfo]
 
+    /// Test-only memberwise init. Production parses via `init?(from:at:)`.
+    internal init(modules: [ModuleInfo]) {
+        self.modules = modules
+    }
+
     public init?(from data: Data, at rva: UInt32) {
         let offset = Int(rva)
 

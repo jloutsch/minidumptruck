@@ -21,6 +21,13 @@ public struct MinidumpMemoryDescriptor: Sendable, Codable {
         self.dataSize = dataSize
         self.rva = rva
     }
+
+    /// Test-only memberwise init.
+    internal init(startOfMemoryRange: UInt64, dataSize: UInt32, rva: UInt32) {
+        self.startOfMemoryRange = startOfMemoryRange
+        self.dataSize = dataSize
+        self.rva = rva
+    }
 }
 
 /// Location descriptor (RVA + size)
@@ -33,6 +40,12 @@ public struct MinidumpLocationDescriptor: Sendable, Codable {
               let rva = data.readUInt32(at: offset + 4)
         else { return nil }
 
+        self.dataSize = dataSize
+        self.rva = rva
+    }
+
+    /// Test-only memberwise init.
+    internal init(dataSize: UInt32, rva: UInt32) {
         self.dataSize = dataSize
         self.rva = rva
     }
@@ -91,6 +104,27 @@ public struct ThreadInfo: Identifiable, Sendable, Codable {
     public mutating func setContext(_ ctx: ThreadContext) {
         self.context = ctx
     }
+
+    /// Test-only memberwise init. Production parses via `init?(from:at:)`.
+    internal init(
+        id: UInt32,
+        suspendCount: UInt32 = 0,
+        priorityClass: UInt32 = 0,
+        priority: UInt32 = 0,
+        teb: UInt64 = 0,
+        stack: MinidumpMemoryDescriptor = MinidumpMemoryDescriptor(startOfMemoryRange: 0, dataSize: 0, rva: 0),
+        contextLocation: MinidumpLocationDescriptor = MinidumpLocationDescriptor(dataSize: 0, rva: 0),
+        context: ThreadContext? = nil
+    ) {
+        self.id = id
+        self.suspendCount = suspendCount
+        self.priorityClass = priorityClass
+        self.priority = priority
+        self.teb = teb
+        self.stack = stack
+        self.contextLocation = contextLocation
+        self.context = context
+    }
 }
 
 /// Collection of threads from ThreadListStream
@@ -99,6 +133,11 @@ public struct ThreadList: Sendable, Codable {
     public static let maxThreads: UInt32 = 10_000
 
     public let threads: [ThreadInfo]
+
+    /// Test-only memberwise init. Production parses via `init?(from:at:)`.
+    internal init(threads: [ThreadInfo]) {
+        self.threads = threads
+    }
 
     public init?(from data: Data, at rva: UInt32) {
         let offset = Int(rva)

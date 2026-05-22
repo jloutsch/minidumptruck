@@ -86,4 +86,27 @@ public struct ExceptionInfo: Sendable, Codable {
         self.contextDataSize = data.readUInt32(at: contextLocOffset)
         self.contextRva = data.readUInt32(at: contextLocOffset + 4)
     }
+
+    /// Test-only memberwise init.
+    internal init(
+        threadId: UInt32,
+        exceptionCode: UInt32,
+        exceptionFlags: UInt32 = 0,
+        exceptionRecord: UInt64 = 0,
+        exceptionAddress: UInt64 = 0,
+        numberOfParameters: UInt32 = 0,
+        exceptionParameters: [UInt64] = [],
+        contextDataSize: UInt32? = nil,
+        contextRva: UInt32? = nil
+    ) {
+        self.threadId = threadId
+        self.exceptionCode = exceptionCode
+        self.exceptionFlags = exceptionFlags
+        self.exceptionRecord = exceptionRecord
+        self.exceptionAddress = exceptionAddress
+        self.numberOfParameters = numberOfParameters
+        self.exceptionParameters = exceptionParameters
+        self.contextDataSize = contextDataSize
+        self.contextRva = contextRva
+    }
 }
