@@ -6,7 +6,8 @@ import Foundation
 public enum WelcomeAction: Sendable {
     /// Open a parsed dump in the current window.
     case openDocument(parsedDump: ParsedMinidump, fileSize: Int)
-    /// Open one or more extracted dump files, each in its own window via DocumentGroup.
+    /// Open one or more extracted dump files via `NSWorkspace.shared.open`,
+    /// which routes back through the App's `.onOpenURL` handler.
     case openWindows([URL])
     /// Present the multi-dump picker sheet for the user to choose entries.
     case showPicker(archive: ZipArchive, dumpEntries: [ZipEntry], zipName: String)

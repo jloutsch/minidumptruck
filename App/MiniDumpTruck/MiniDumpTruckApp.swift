@@ -2,28 +2,33 @@ import SwiftUI
 import AppKit
 import MiniDumpTruckCore
 
-/// Sweep zip-extraction cache URLs out of Recent Documents.
-///
-/// We can't intercept individual `noteNewRecentDocumentURL` calls without
-/// subclassing `NSDocumentController`, and subclassing crashes SwiftUI's
-/// own `PlatformDocumentController` during `applicationWillFinishLaunching`
-/// in `.app`-bundle launches (issue #46). Instead, accept that cache URLs
-/// land in recents transiently, and sweep them via the public API on a
-/// known cadence: at launch (catches stale entries from prior sessions)
-/// and immediately after `TempStore.cleanupAged` (catches entries whose
-/// backing files we just deleted).
-///
-/// AppKit exposes no "remove one" API, so we rebuild the list: clear
-/// everything, then re-add the survivors via the public
-/// `noteNewRecentDocumentURL`.
+extension NSDocumentController: RecentDocumentsHost {}
+
+/// Modal confirm-before-replace prompt for the `.onOpenURL` happy path.
+/// Returns `true` if the user wants the new file to replace the current
+/// document, `false` to keep the current document and discard the open.
+@MainActor
+private func confirmReplaceCurrentDocument(newFile name: String) -> Bool {
+    let alert = NSAlert()
+    alert.messageText = "Replace open dump?"
+    alert.informativeText = "Opening \(name) will close the current analysis. Continue?"
+    alert.alertStyle = .warning
+    alert.addButton(withTitle: "Open")
+    alert.addButton(withTitle: "Cancel")
+    return alert.runModal() == .alertFirstButtonReturn
+}
+
+/// App-level convenience that wires the shared `NSDocumentController` and
+/// `TempStore.isInsideCache` into the testable `sweepCacheEntries` core
+/// helper. We can't intercept individual `noteNewRecentDocumentURL`
+/// calls without subclassing `NSDocumentController`, and subclassing
+/// crashes SwiftUI's `PlatformDocumentController` during
+/// `applicationWillFinishLaunching` in `.app`-bundle launches (#46).
+/// Instead we sweep on a known cadence: launch, after
+/// `TempStore.cleanupAged`, and at termination.
 @MainActor
 private func purgeStaleCacheEntries() {
-    let controller = NSDocumentController.shared
-    let urls = controller.recentDocumentURLs
-    let keep = urls.filter { !TempStore.isInsideCache($0) }
-    guard keep.count != urls.count else { return }
-    controller.clearRecentDocuments(nil)
-    for url in keep { controller.noteNewRecentDocumentURL(url) }
+    sweepCacheEntries(from: NSDocumentController.shared, isCacheURL: TempStore.isInsideCache)
 }
 
 @main
@@ -43,12 +48,35 @@ struct MiniDumpTruckApp: App {
         // own initialization. willFinishLaunchingNotification fires just
         // before AppKit asks the controller to restore documents, which is
         // also when stale "open recent" entries would otherwise be exposed.
-        NotificationCenter.default.addObserver(
+        //
+        // The returned observer token is intentionally discarded: this
+        // observer lives for the lifetime of the process. NSNotificationCenter
+        // holds a weak reference to the block-based observer's host object;
+        // since we have no removal site we don't need the token.
+        _ = NotificationCenter.default.addObserver(
             forName: NSApplication.willFinishLaunchingNotification,
             object: nil,
-            queue: .main
+            queue: nil
         ) { _ in
-            MainActor.assumeIsolated { purgeStaleCacheEntries() }
+            // Bridge through `Task { @MainActor in ... }` rather than
+            // `MainActor.assumeIsolated` because the latter relies on
+            // OperationQueue.main being main-actor-isolated, which is
+            // implementation detail rather than a documented Swift
+            // concurrency guarantee.
+            Task { @MainActor in purgeStaleCacheEntries() }
+        }
+
+        // Defense in depth: sweep at termination so anything that landed
+        // in recents during this session is gone before AppKit flushes
+        // the prefs plist. With no DocumentGroup wiring, the current code
+        // path doesn't auto-record URLs — but this guard survives future
+        // changes (e.g. adding an Open Recent menu) that might.
+        _ = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            Task { @MainActor in purgeStaleCacheEntries() }
         }
 
         // Best-effort cleanup of zip-extracted tempfiles older than 24 hours.
@@ -61,16 +89,20 @@ struct MiniDumpTruckApp: App {
     }
 
     var body: some Scene {
-        // Main welcome window. Handles both fresh-launch (WelcomeView) and
-        // file-open (Finder double-click, drag-to-Dock, `open file.dmp`)
-        // via `.onOpenURL`. We deliberately do NOT use SwiftUI's
-        // `DocumentGroup` here — its `PlatformDocumentController` crashes
-        // in `applicationWillFinishLaunching` when the app is launched
-        // from a hand-built `.app` bundle (issue #46). The crash is
-        // unrelated to the previous `FilteringDocumentController` subclass;
-        // disabling that did not resolve it. Routing file opens through
-        // the same `InputPipeline` path that the welcome view already
-        // uses avoids the crash and preserves single-window behavior.
+        // ⚠️  Do NOT add `DocumentGroup(viewing: MinidumpDocument.self)` to
+        // this body. SwiftUI's `DocumentGroup` crashes inside
+        // `PlatformDocumentController.createDocumentClassIfNeeded` during
+        // `applicationWillFinishLaunching` whenever the app is launched
+        // from a hand-built `.app` bundle (the distribution path, not the
+        // Xcode debug path). Issue #46 confirms this; removing the
+        // previous `NSDocumentController` subclass did not resolve it.
+        // External file opens (Finder double-click, Dock drag, `open
+        // file.dmp`) route through `.onOpenURL` below into the same
+        // `InputPipeline.ingest` path that WelcomeView uses for
+        // drag/Open-File. Recent Documents is managed manually via
+        // `NSDocumentController.shared`; multi-window fan-out for zips
+        // goes through `NSWorkspace.shared.open` (which loops back through
+        // `.onOpenURL`).
         WindowGroup {
             GeometryReader { geo in
                 Group {
@@ -91,16 +123,29 @@ struct MiniDumpTruckApp: App {
             }
             .helpWindowHandler()
             .onOpenURL { url in
+                // Guard against non-file URLs (custom scheme handlers) and
+                // non-regular files (FIFOs, devices, directories). The
+                // previous DocumentGroup path went through NSDocument which
+                // enforces this; the .onOpenURL path does not.
+                guard url.isFileURL,
+                      (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
+                else { return }
                 Task {
                     let outcome = await InputPipeline.ingest(url: url)
                     await MainActor.run {
-                        // Drop back to WelcomeView for non-happy paths so the
-                        // zip-picker sheet and alert handlers (which only
-                        // exist there) can fire. The happy `.openInPlace`
-                        // case can replace the current document in place.
-                        if case .openInPlace(let parsed, let size) = outcome {
+                        switch externalOpenAction(for: outcome) {
+                        case .showDocument(let parsed, let size):
+                            // Confirm before replacing an in-progress
+                            // analysis — DocumentGroup used to open each
+                            // file in its own window for free; without
+                            // that, silently clobbering the current view
+                            // is a data-loss surprise for the user.
+                            if openedDocument != nil,
+                               !confirmReplaceCurrentDocument(newFile: url.lastPathComponent) {
+                                return
+                            }
                             openedDocument = MinidumpDocument(parsedDump: parsed, fileSize: size)
-                        } else {
+                        case .deferToWelcomeView(let outcome):
                             openedDocument = nil
                             pendingExternalOutcome = PendingOutcome(outcome: outcome)
                         }
@@ -426,10 +471,17 @@ extension Notification.Name {
     static let openHelp = Notification.Name("openHelp")
 }
 
-/// `InputPipeline.Outcome` is not `Hashable`/`Identifiable`, so wrap it in
-/// a UUID-tagged carrier. WelcomeView keys `.onChange` on the id, which
-/// fires reliably even when the same logical outcome arrives twice in a
-/// row (e.g. user double-clicks the same broken file again).
+/// One-shot carrier for an external-open outcome that needs UI (picker /
+/// alert / multi-window fan-out).
+///
+/// `Equatable` compares only `id` (a per-instance `UUID`) — distinct
+/// instances are NEVER equal, even when they wrap structurally identical
+/// outcomes. This is load-bearing: SwiftUI's `.onChange(of: optional)`
+/// requires the wrapped type to be `Equatable`, and id-only equality
+/// guarantees `.onChange` fires every time we assign a new outcome (so a
+/// user double-clicking the same broken file twice gets the alert twice).
+/// **Do not** swap this conformance for structural equality without
+/// rethinking the `.onChange` contract in WelcomeView.
 struct PendingOutcome: Identifiable, Equatable {
     let id = UUID()
     let outcome: InputPipeline.Outcome
