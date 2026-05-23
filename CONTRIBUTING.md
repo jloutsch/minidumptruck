@@ -67,4 +67,4 @@ Use [GitHub Issues](https://github.com/jloutsch/minidumptruck/issues) to report 
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the [GNU GPLv3](LICENSE) — the same license that covers the rest of the project.
