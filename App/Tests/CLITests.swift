@@ -271,6 +271,52 @@ struct CLITests {
                 "reason '\(reason)' should match known sanitized vocabulary")
     }
 
+    @Test func analyzeDirectoryFiltersSymlinkToDirectoryNamedDmp() throws {
+        // `findDumpFiles` filters by `.isRegularFile` so a malicious
+        // (or accidental) symlink named `something.dmp` that resolves
+        // to a directory doesn't get fed into `Data(contentsOf:)`,
+        // which would throw an uncaught error and exit the CLI with
+        // no useful message. The filter must drop the symlink and
+        // still process the real .dmp alongside it.
+        let url = Self.testFile("test.dmp")
+        try #require(FileManager.default.fileExists(atPath: url.path))
+
+        let stagingDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-symlink-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: stagingDir) }
+
+        // Place a real .dmp inside. The "real" / "evil" name choice
+        // is also load-bearing for the no-regression proof: the
+        // CLI sorts directory contents alphabetically, so "evil"
+        // sorts before "real" — meaning if the symlink filter
+        // regresses, `Data(contentsOf:)` follows the symlink BEFORE
+        // ever reaching real.dmp, and the real-dmp processing
+        // assertion below will fail rather than mask the bug.
+        let realDmp = stagingDir.appendingPathComponent("real.dmp")
+        try FileManager.default.copyItem(at: url, to: realDmp)
+
+        // Place a symlink with .dmp extension that points to a
+        // directory (the staging dir itself). Before the filter was
+        // added, `findDumpFiles` would include this entry, then
+        // `Data(contentsOf:)` would follow the symlink and throw.
+        let evilSymlink = stagingDir.appendingPathComponent("evil.dmp")
+        try FileManager.default.createSymbolicLink(at: evilSymlink, withDestinationURL: stagingDir)
+
+        let result = try Self.runCLI("analyze", stagingDir.path)
+
+        // Real dump processed successfully → CLI emits its analysis
+        // header containing the filename.
+        #expect(result.stdout.contains("real.dmp"),
+                "real .dmp should have been analyzed; stdout: \(result.stdout)")
+        // Positive assertion that the symlink was filtered out:
+        // stderr must NOT name evil.dmp as a failure. If the filter
+        // regresses, the wrapped NSError from `Data(contentsOf:)`
+        // contains the filename and this assertion fires.
+        #expect(!result.stderr.contains("evil.dmp"),
+                "symlink-to-dir must be filtered out, not surfaced as an error; stderr: \(result.stderr)")
+    }
+
     @Test func analyzeDirectoryWithNoDmpFiles() throws {
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-test-empty-\(UUID().uuidString)")
@@ -382,6 +428,39 @@ struct CLITests {
 
         #expect(result.exitCode != 0)
         #expect(result.stderr.contains("File or directory not found"))
+    }
+
+    @Test func exportRejectsOutputPathThatExistsAsRegularFile() throws {
+        // ExportCommand explicitly rejects the case where `outputDir`
+        // resolves to an existing regular file, with a clear CLIError
+        // — instead of leaking the confusing "not a directory" wrapped
+        // NSError that `createDirectory(at:withIntermediateDirectories:)`
+        // would otherwise produce.
+        let url = Self.testFile("test.dmp")
+        try #require(FileManager.default.fileExists(atPath: url.path))
+
+        let outputCollision = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-export-collision-\(UUID().uuidString)")
+        // Make the path exist as a regular file, not a directory.
+        try Data("not a directory".utf8).write(to: outputCollision)
+        defer { try? FileManager.default.removeItem(at: outputCollision) }
+
+        let result = try Self.runCLI(
+            "export", url.path,
+            "-o", outputCollision.path,
+            "-f", "text"
+        )
+
+        // Exit code 3 is the documented value for parse/IO/size-guard
+        // failures (CLIError.ioError); 1 is reserved for "file not
+        // found". Pinning the exact value so a future change can't
+        // conflate the two failure classes.
+        #expect(result.exitCode == 3, "expected ioError exit code 3; got \(result.exitCode)")
+        #expect(result.stderr.contains("exists and is not a directory"),
+                "stderr should clearly name the failure mode; got: \(result.stderr)")
+        // The pre-existing file must not be clobbered.
+        let stillRegular = (try? outputCollision.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
+        #expect(stillRegular)
     }
 
     // MARK: - 4. InfoCommand
