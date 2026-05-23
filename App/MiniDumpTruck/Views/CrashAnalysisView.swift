@@ -433,8 +433,9 @@ struct CrashAnalysisView: View {
 
         isAnalyzing = true
 
+        let tables = viewModel.pdbTables
         let result = await Task.detached(priority: .userInitiated) {
-            CrashAnalyzer(dump: dump).analyze()
+            CrashAnalyzer(dump: dump, pdbTables: tables).analyze()
         }.value
         analysis = result
 

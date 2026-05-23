@@ -1,7 +1,18 @@
 import Foundation
 
-/// Resolves code addresses to exported function names using per-module PE
-/// export tables read from dump memory. Slice 1 of issue #2.
+/// Resolves code addresses to function names.
+///
+/// Two-tier resolution:
+/// 1. PE export tables read from dump memory (slice 1 of #2). Covers
+///    exported (dllexport) names without any network access.
+/// 2. PDB public symbol tables (slice 2). Covers a broader set
+///    including internal-linkage functions and inlined entries,
+///    populated by `SymbolicationService` fetching from a Microsoft
+///    symbol server.
+///
+/// PDB tables are checked first because they're broader; export-table
+/// fallback resolves the rare case where a PDB lookup misses but the
+/// address is in an exported function.
 public struct Symbolicator: Sendable {
     /// Accuracy guard: if the nearest export is more than this many bytes
     /// below the address, the symbol is probably wrong (unexported/static
@@ -11,9 +22,13 @@ public struct Symbolicator: Sendable {
     private let moduleList: ModuleList?
     /// baseAddress -> parsed export table (only modules that produced one).
     private let tables: [UInt64: PEExportTable]
+    /// baseAddress -> server-fetched PDB symbols. Empty until populated
+    /// by a `SymbolicationService` call after the dump is opened.
+    private let pdbTables: [UInt64: PDBSymbolTable]
 
-    public init(dump: ParsedMinidump) {
+    public init(dump: ParsedMinidump, pdbTables: [UInt64: PDBSymbolTable] = [:]) {
         self.moduleList = dump.moduleList
+        self.pdbTables = pdbTables
         let reader = DumpMemoryReader(dump: dump)
         var built: [UInt64: PEExportTable] = [:]
         for module in dump.moduleList?.modules ?? [] {
@@ -28,11 +43,23 @@ public struct Symbolicator: Sendable {
     }
 
     public func resolve(address: UInt64) -> ResolvedSymbol? {
-        guard let module = moduleList?.module(containing: address),
-              let table = tables[module.baseAddress] else { return nil }
+        guard let module = moduleList?.module(containing: address) else { return nil }
         let imageOffset = address - module.baseAddress
-        guard let hit = table.symbol(forImageOffset: imageOffset) else { return nil }
-        guard hit.delta <= Self.maxFunctionSpan else { return nil }
-        return ResolvedSymbol(function: hit.name, offsetInFunction: hit.delta)
+
+        // PDB first — it's the broader source.
+        if let pdb = pdbTables[module.baseAddress],
+           let hit = pdb.symbol(forImageOffset: imageOffset),
+           hit.delta <= Self.maxFunctionSpan {
+            return ResolvedSymbol(function: hit.name, offsetInFunction: hit.delta)
+        }
+
+        // Fall back to PE export table.
+        if let table = tables[module.baseAddress],
+           let hit = table.symbol(forImageOffset: imageOffset),
+           hit.delta <= Self.maxFunctionSpan {
+            return ResolvedSymbol(function: hit.name, offsetInFunction: hit.delta)
+        }
+
+        return nil
     }
 }
