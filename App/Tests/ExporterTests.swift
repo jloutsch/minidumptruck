@@ -492,6 +492,18 @@ struct CSVExporterTests {
             #expect(escaped.hasPrefix("'\(trigger)"),
                     "trigger '\(trigger)' should be neutralized with leading quote; got '\(escaped)'")
         }
+        // Tab is in the trigger set too — Excel's legacy DDE form is
+        // `\t=cmd|...`, so a field beginning with TAB must be
+        // neutralized with the leading single quote. TAB also forces
+        // RFC-4180 quote-wrapping (it would otherwise split columns in
+        // TSV-aware tools), so the wire output is `"'\tCMD"`.
+        do {
+            let evil = "\u{0001}\tCMD"
+            let escaped = CSVExporter.escapeCSV(evil)
+            #expect(!escaped.contains("\u{0001}"))
+            #expect(escaped == "\"'\tCMD\"",
+                    "TAB-leading field must get both the formula-injection prefix and CSV quote-wrap; got '\(escaped)'")
+        }
     }
 
     @Test func escapeCSVHandlesEdgeCases() {

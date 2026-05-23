@@ -211,8 +211,10 @@ public struct CSVExporter: Sendable {
         var result = field.sanitizedForOutput()
 
         // CSV injection protection: prefix formula-triggering characters with a single quote
-        // to prevent Excel/Sheets from interpreting fields as formulas
-        if let first = result.first, "=+-@|%".contains(first) {
+        // to prevent Excel/Sheets from interpreting fields as formulas.
+        // Includes \t to defeat the Excel DDE legacy form `\t=cmd|...`
+        // — Excel still parses leading-tab-then-formula as a formula.
+        if let first = result.first, "=+-@|%\t".contains(first) {
             result = "'" + result
         }
 

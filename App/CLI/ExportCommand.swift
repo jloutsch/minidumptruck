@@ -33,10 +33,16 @@ struct ExportCommand: AsyncParsableCommand {
 
         do {
             let outputDir = URL(fileURLWithPath: output)
-            do {
-                try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-            } catch {
-                throw CLIError.ioError(error.localizedDescription)
+
+            // If `outputDir` already exists as a REGULAR FILE (not a
+            // directory), `createDirectory(...)` returns a confusing
+            // "file already exists" / "not a directory" error message.
+            // Surface a clear CLIError instead before we attempt
+            // anything destructive.
+            var outIsDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: outputDir.path, isDirectory: &outIsDir),
+               !outIsDir.boolValue {
+                throw CLIError.ioError("output path '\(outputDir.path)' exists and is not a directory")
             }
 
             let files: [URL]
@@ -57,8 +63,23 @@ struct ExportCommand: AsyncParsableCommand {
                 return
             }
 
+            // Defer directory creation until just before the first
+            // export actually writes — so a run that fails to parse
+            // any input doesn't leave an empty orphan directory on
+            // disk.
+            var outputDirCreated = false
+            let ensureOutputDir: () throws -> Void = {
+                guard !outputDirCreated else { return }
+                do {
+                    try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+                    outputDirCreated = true
+                } catch {
+                    throw CLIError.ioError(error.localizedDescription)
+                }
+            }
+
             for file in files {
-                try exportFile(file, to: outputDir)
+                try exportFile(file, to: outputDir, ensureOutputDir: ensureOutputDir)
             }
 
             print("Exported \(files.count) file(s) to \(outputDir.path)")
@@ -68,7 +89,7 @@ struct ExportCommand: AsyncParsableCommand {
         }
     }
 
-    private func exportFile(_ file: URL, to outputDir: URL) throws {
+    private func exportFile(_ file: URL, to outputDir: URL, ensureOutputDir: () throws -> Void) throws {
         let data = try CLIIO.readDump(at: file, maxSize: maxFileSize)
         let dump: ParsedMinidump
         do {
@@ -110,6 +131,10 @@ struct ExportCommand: AsyncParsableCommand {
             ext = "json"
         }
 
+        // Create the output dir lazily — only after we have a parsed
+        // dump and rendered content ready to write. A parse failure
+        // earlier leaves no orphan directory.
+        try ensureOutputDir()
         let outputFile = outputDir.appendingPathComponent("\(baseName).\(ext)")
         try content.write(to: outputFile, atomically: true, encoding: .utf8)
         print("  \(file.lastPathComponent) -> \(outputFile.lastPathComponent)")
