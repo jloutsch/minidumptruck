@@ -8,8 +8,14 @@ DerivedData/
 .DS_Store
 *.swp
 *~
-# Test dump files (large binary files)
+# Customer / local dump files: anything under the repo root is
+# ignored by default so a customer crash you dropped in to triage
+# doesn't accidentally get committed. The TestData/ directory is
+# the explicit exception — fixtures there are public-source / synthetic
+# (see App/TestData/README.md for per-file attribution) and have to
+# be tracked so CI can run the full integration suite.
 *.dmp
+!App/TestData/*.dmp
 # Xcode
 xcuserdata/
 *.xccheckout

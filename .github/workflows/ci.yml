@@ -1,0 +1,55 @@
+name: CI
+
+# Build + test on every push to main and every PR.
+# Public-repo macOS runner minutes are free, so we run on every event
+# without trying to cache. The full suite (~846 tests in 117 suites)
+# completes in under a second once compiled; total wall-clock per run
+# is dominated by runner startup + Swift package resolve.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# Cancel in-progress CI runs for a branch when a newer commit comes in
+# on the same branch — saves runner minutes when force-pushing or
+# pushing fixups to an open PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: swift build + swift test
+    # macos-15 = Apple Silicon w/ Xcode 16 (Swift 6.x). macos-14 ships
+    # Swift 5.9 which can't compile swift-argument-parser 1.7.0+
+    # (uses access-level-on-imports, a Swift 6 feature). The produced
+    # app's deployment target stays macOS 14 — that's controlled by
+    # Package.swift's `.macOS(.v14)`, not by the build host.
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        # Pinned by full commit SHA per code-standards.md. Update by
+        # bumping both the SHA and the trailing comment when a new
+        # release ships.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Build
+        working-directory: App
+        run: swift build
+
+      - name: Test
+        working-directory: App
+        run: swift test
