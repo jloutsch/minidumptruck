@@ -25,10 +25,12 @@ permissions:
 jobs:
   release:
     name: Build DMG and publish release
-    # macos-14 is the Apple Silicon runner. macos-latest currently
-    # aliases there too, but pinning to the explicit version avoids
-    # surprise behavior if GitHub flips the alias.
-    runs-on: macos-14
+    # macos-15 = Apple Silicon w/ Xcode 16 (Swift 6.x). macos-14 ships
+    # Swift 5.9 which can't compile swift-argument-parser 1.7.0+
+    # (Swift-6-only feature). The produced app's deployment target
+    # stays macOS 14 — that's controlled by Package.swift, not the
+    # build host.
+    runs-on: macos-15
 
     steps:
       - name: Checkout

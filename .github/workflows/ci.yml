@@ -27,9 +27,12 @@ permissions:
 jobs:
   build-test:
     name: swift build + swift test
-    # macos-14 = Apple Silicon. Matches the release workflow runner so
-    # CI exercises the same toolchain we ship from.
-    runs-on: macos-14
+    # macos-15 = Apple Silicon w/ Xcode 16 (Swift 6.x). macos-14 ships
+    # Swift 5.9 which can't compile swift-argument-parser 1.7.0+
+    # (uses access-level-on-imports, a Swift 6 feature). The produced
+    # app's deployment target stays macOS 14 — that's controlled by
+    # Package.swift's `.macOS(.v14)`, not by the build host.
+    runs-on: macos-15
 
     steps:
       - name: Checkout
