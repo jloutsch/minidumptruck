@@ -179,4 +179,4 @@ The project has 846 tests across 117 suites. Run `swift test` from `App/` to exe
 
 ## License
 
-[MIT](LICENSE)
+[GNU GPLv3](LICENSE)
