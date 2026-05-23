@@ -286,7 +286,13 @@ struct CLITests {
         try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: stagingDir) }
 
-        // Place a real .dmp inside.
+        // Place a real .dmp inside. The "real" / "evil" name choice
+        // is also load-bearing for the no-regression proof: the
+        // CLI sorts directory contents alphabetically, so "evil"
+        // sorts before "real" — meaning if the symlink filter
+        // regresses, `Data(contentsOf:)` follows the symlink BEFORE
+        // ever reaching real.dmp, and the real-dmp processing
+        // assertion below will fail rather than mask the bug.
         let realDmp = stagingDir.appendingPathComponent("real.dmp")
         try FileManager.default.copyItem(at: url, to: realDmp)
 
@@ -299,14 +305,16 @@ struct CLITests {
 
         let result = try Self.runCLI("analyze", stagingDir.path)
 
-        // The real dump processed successfully (analyze emits a
-        // per-file header for each file it touched). Symlink dropped
-        // silently — no traceback, no exit-1 from an uncaught
-        // Data(contentsOf:) error.
+        // Real dump processed successfully → CLI emits its analysis
+        // header containing the filename.
         #expect(result.stdout.contains("real.dmp"),
                 "real .dmp should have been analyzed; stdout: \(result.stdout)")
-        #expect(!result.stderr.contains("evil.dmp") || result.exitCode == 0 || result.exitCode == 2,
-                "symlink-to-dir must not crash the CLI; stderr: \(result.stderr), exit: \(result.exitCode)")
+        // Positive assertion that the symlink was filtered out:
+        // stderr must NOT name evil.dmp as a failure. If the filter
+        // regresses, the wrapped NSError from `Data(contentsOf:)`
+        // contains the filename and this assertion fires.
+        #expect(!result.stderr.contains("evil.dmp"),
+                "symlink-to-dir must be filtered out, not surfaced as an error; stderr: \(result.stderr)")
     }
 
     @Test func analyzeDirectoryWithNoDmpFiles() throws {
@@ -443,7 +451,11 @@ struct CLITests {
             "-f", "text"
         )
 
-        #expect(result.exitCode != 0)
+        // Exit code 3 is the documented value for parse/IO/size-guard
+        // failures (CLIError.ioError); 1 is reserved for "file not
+        // found". Pinning the exact value so a future change can't
+        // conflate the two failure classes.
+        #expect(result.exitCode == 3, "expected ioError exit code 3; got \(result.exitCode)")
         #expect(result.stderr.contains("exists and is not a directory"),
                 "stderr should clearly name the failure mode; got: \(result.stderr)")
         // The pre-existing file must not be clobbered.
