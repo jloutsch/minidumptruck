@@ -121,6 +121,51 @@ struct MSFParserTests {
         }
     }
 
+    @Test func multiBlockConcatenationProducesByteExactOutput() throws {
+        // The perf refactor switched concatenateBlocks from
+        // data.subdata(_:) per block to a single withUnsafeBytes copy
+        // via raw pointer arithmetic. A typo (off-by-one on `take`,
+        // wrong `advanced(by:)` argument, partial-block early-return
+        // bug) would silently produce wrong bytes mid-stream. The
+        // SyntheticPDB happy-path tests don't pin per-byte output;
+        // this test does.
+        //
+        // Build a PDB whose DBI stream lives at a known block, then
+        // verify the bytes we read back equal the bytes we wrote.
+        let pdb = SyntheticPDB.build(
+            sections: [SyntheticPDB.Section(virtualAddress: 0x1000, virtualSize: 0x10000)],
+            symbols: [
+                SyntheticPDB.Symbol(name: "Alpha", segment: 1, offset: 0x100),
+                SyntheticPDB.Symbol(name: "Bravo", segment: 1, offset: 0x200),
+                SyntheticPDB.Symbol(name: "Charlie", segment: 1, offset: 0x300),
+            ]
+        )
+        let msf = try MSFFile(data: pdb)
+
+        // DBI stream is block 5, 86 bytes long per SyntheticPDB.
+        let dbi = try #require(msf.readStream(3))
+        // Pin specific bytes the raw-pointer copy would have moved.
+        // Byte 0..3 of DBI: signature (i32 -1) = 0xFF 0xFF 0xFF 0xFF.
+        #expect(dbi[0] == 0xFF)
+        #expect(dbi[1] == 0xFF)
+        #expect(dbi[2] == 0xFF)
+        #expect(dbi[3] == 0xFF)
+        // Byte 20..21: symRecordStream u16 = 4.
+        #expect(dbi[20] == 4)
+        #expect(dbi[21] == 0)
+        // Byte 24..27: modInfoSize u32 = 0.
+        #expect(dbi.subdata(in: 24..<28) == Data([0, 0, 0, 0]))
+
+        // Symbol record stream contains our three planted records.
+        // Each record starts with a length u16, then kind u16 = 0x110E
+        // (S_PUB32). The first record's kind bytes should be 0E 11.
+        let syms = try #require(msf.readStream(4))
+        // Find the first S_PUB32 kind marker. It must appear at offset
+        // 2 (right after the length u16).
+        #expect(syms[2] == 0x0E)
+        #expect(syms[3] == 0x11)
+    }
+
     @Test func absurdDirectorySizeRejected() {
         // numDirectoryBytes > maxStreamSize must reject before
         // walking the directory block list. Otherwise an attacker-

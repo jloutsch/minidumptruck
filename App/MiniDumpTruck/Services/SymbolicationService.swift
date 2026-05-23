@@ -106,47 +106,57 @@ public actor SymbolicationService {
         let cache = self.cache
         let server = self.server
         counters.attempted += 1
-        group.addTask { [weak self] in
+        // `await withTaskGroup` blocks until every subtask finishes,
+        // so `self` outlives every addTask body. No [weak self]
+        // ceremony needed.
+        group.addTask {
             // Try cache first.
             if let cachedData = await cache.data(for: key) {
-                await self?.recordCacheHit()
+                await self.record(.cacheHit)
                 if let symbols = try? PDBPublics.parse(cachedData), !symbols.isEmpty {
-                    await self?.recordParseSuccess()
+                    await self.record(.parseSuccess)
                     return (baseAddress, PDBSymbolTable(symbols: symbols))
                 }
                 // Cached bytes failed to parse — corruption recovery.
                 Logger.symbols.notice("cached PDB for \(key.pdbName, privacy: .public) failed to parse; evicting and re-fetching")
                 await cache.evict(key)
-                await self?.recordEviction()
+                await self.record(.eviction)
             }
             // Either cache miss or post-eviction refetch.
             do {
                 let freshData = try await server.fetch(key)
                 try? await cache.store(freshData, for: key)
-                await self?.recordServerFetch()
+                await self.record(.serverFetch)
                 if let symbols = try? PDBPublics.parse(freshData), !symbols.isEmpty {
-                    await self?.recordParseSuccess()
+                    await self.record(.parseSuccess)
                     return (baseAddress, PDBSymbolTable(symbols: symbols))
                 }
                 // Fresh bytes also failed to parse — server-side
                 // problem. Log + drop, don't loop.
                 Logger.symbols.error("freshly-fetched PDB for \(key.pdbName, privacy: .public) failed to parse")
-                await self?.recordFailure()
+                await self.record(.failure)
                 return (baseAddress, nil)
             } catch {
-                await self?.recordFailure()
+                await self.record(.failure)
                 return (baseAddress, nil)
             }
         }
         return true
     }
 
-    // Counter mutations stay on the actor.
-    private func recordCacheHit() { counters.cacheHits += 1 }
-    private func recordServerFetch() { counters.serverFetches += 1 }
-    private func recordParseSuccess() { counters.parseSuccesses += 1 }
-    private func recordEviction() { counters.corruptionEvictions += 1 }
-    private func recordFailure() { counters.failures += 1 }
+    /// Counter increments — collapsed from five `record*` methods into
+    /// one enum-driven update so the call sites read like events
+    /// rather than method calls.
+    private enum CounterEvent { case cacheHit, serverFetch, parseSuccess, eviction, failure }
+    private func record(_ event: CounterEvent) {
+        switch event {
+        case .cacheHit:      counters.cacheHits += 1
+        case .serverFetch:   counters.serverFetches += 1
+        case .parseSuccess:  counters.parseSuccesses += 1
+        case .eviction:      counters.corruptionEvictions += 1
+        case .failure:       counters.failures += 1
+        }
+    }
 
     /// Derive a `PDBIdentity` from a module's CodeView record. Returns
     /// nil when the record is missing, malformed, or doesn't carry a

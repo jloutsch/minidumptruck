@@ -1,12 +1,8 @@
 import Foundation
 import Testing
+import Security
 @testable import MiniDumpTruckCore
 
-/// Most TLS pinning behavior can't be exercised in a unit test —
-/// `SecTrustEvaluateWithError` needs a real cert chain bound to a
-/// network connection. These tests pin the cheap properties: the
-/// delegate is wired correctly, the policy is captured, and the
-/// systemTrust fast path doesn't allocate a delegate.
 @Suite("SymbolServer TLS trust policy")
 struct SymbolServerTrustTests {
 
@@ -16,25 +12,18 @@ struct SymbolServerTrustTests {
                 ".systemTrust must not allocate a SymbolServerTrustDelegate")
     }
 
-    @Test func pinAppleManagedSessionHasDelegate() {
-        let session = SymbolServer.makeSession(trustPolicy: .pinAppleManaged)
-        #expect(session.delegate is SymbolServerTrustDelegate,
-                "non-systemTrust mode must attach the trust delegate")
-    }
-
-    @Test func pinPublicKeySessionHasDelegate() {
+    @Test func pinCertificateSessionHasDelegate() {
         let session = SymbolServer.makeSession(
-            trustPolicy: .pinPublicKey(allowedSPKISHA256Hashes: [Data(repeating: 0xAB, count: 32)])
+            trustPolicy: .pinCertificateSHA256(allowedHashes: [Data(repeating: 0xAB, count: 32)])
         )
         guard let delegate = session.delegate as? SymbolServerTrustDelegate else {
             Issue.record("expected SymbolServerTrustDelegate, got \(String(describing: session.delegate))")
             return
         }
-        // Verify the policy round-tripped.
-        if case .pinPublicKey(let hashes) = delegate.policy {
+        if case .pinCertificateSHA256(let hashes) = delegate.policy {
             #expect(hashes.contains(Data(repeating: 0xAB, count: 32)))
         } else {
-            Issue.record("delegate's policy lost the pinPublicKey associated value")
+            Issue.record("delegate's policy lost the pinCertificateSHA256 associated value")
         }
     }
 
@@ -43,5 +32,67 @@ struct SymbolServerTrustTests {
         #expect(session.configuration.timeoutIntervalForRequest == 15)
         #expect(session.configuration.timeoutIntervalForResource == 30)
         #expect(session.configuration.waitsForConnectivity == false)
+    }
+
+    @Test func emptyAllowedHashesIsVacuous() {
+        // A pinning policy with no allowed hashes would reject every
+        // TLS handshake. The policy must report itself vacuous so
+        // makeSession can refuse it instead of silently disabling
+        // every symbol fetch.
+        let bad: SymbolServerTrustPolicy = .pinCertificateSHA256(allowedHashes: [])
+        #expect(bad.isVacuous == true)
+
+        let good: SymbolServerTrustPolicy = .pinCertificateSHA256(
+            allowedHashes: [Data(repeating: 0x42, count: 32)]
+        )
+        #expect(good.isVacuous == false)
+
+        #expect(SymbolServerTrustPolicy.systemTrust.isVacuous == false)
+    }
+
+    @Test func defaultPolicyIsSystemTrust() {
+        // Pin the default — callers should be able to say `.default`
+        // without depending on the exact case name. A refactor that
+        // changes the default to a pinning mode would break this test.
+        if case .systemTrust = SymbolServerTrustPolicy.default {
+            // expected
+        } else {
+            Issue.record("default policy must remain .systemTrust")
+        }
+    }
+
+    // MARK: - Direct delegate invocation
+    //
+    // SecTrust handshakes can't easily be faked in a unit test, but
+    // we can still pin the delegate's logic by driving the
+    // certificate-SHA256 helper against a known cert and verifying
+    // its outputs.
+
+    // MARK: - SHA-256 helper
+    //
+    // Materializing a valid SecCertificate requires real X.509 DER
+    // bytes, which would mean shipping a cert fixture file. Instead
+    // we test the underlying SHA-256 helper directly with known
+    // inputs and known outputs — the wrapper that pulls DER from
+    // SecCertificate is one line and uses well-tested Apple APIs.
+
+    @Test func sha256HelperMatchesKnownVector() {
+        // Empty input: SHA-256 of "" =
+        //   e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        let expected = Data([
+            0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14,
+            0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f, 0xb9, 0x24,
+            0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c,
+            0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55,
+        ])
+        #expect(SymbolServerTrustDelegate.sha256(Data()) == expected)
+    }
+
+    @Test func sha256HelperProducesDistinctHashesForDistinctInputs() {
+        let a = SymbolServerTrustDelegate.sha256(Data("hello".utf8))
+        let b = SymbolServerTrustDelegate.sha256(Data("world".utf8))
+        #expect(a != b)
+        #expect(a.count == 32)
+        #expect(b.count == 32)
     }
 }

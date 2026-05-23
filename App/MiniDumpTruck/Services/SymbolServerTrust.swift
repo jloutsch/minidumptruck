@@ -1,4 +1,5 @@
 import Foundation
+import CommonCrypto
 import os
 
 /// TLS server-trust evaluation hooks for `SymbolServer`.
@@ -10,37 +11,53 @@ import os
 /// checks, size caps, malformed-input tests), but a future parser bug
 /// would become a remote code-execution primitive over MitM.
 ///
-/// This file provides three trust modes the user can pick from
-/// settings:
+/// Two user-selectable trust modes:
 ///
 /// 1. **`.systemTrust`** (default): the OS trust store decides. Same
 ///    as plain `URLSession.shared`. Works behind corporate proxies
 ///    with custom CAs (Zscaler, Bluecoat, Charles, etc.). Lowest
 ///    surprise for general users.
 ///
-/// 2. **`.pinAppleManaged`**: only accept certificates that chain to
-///    Apple-managed system roots (rejects MDM-installed custom CAs).
-///    Useful on managed Macs where the user can't always trust the
-///    device's CA store.
+/// 2. **`.pinCertificateSHA256(_:)`**: pin to a specific certificate
+///    by SHA-256 of its DER encoding. The admin populates the
+///    allowlist with `openssl x509 -in cert.pem -outform DER |
+///    openssl dgst -sha256` (or `shasum -a 256 cert.der`). Highest
+///    assurance but breaks if Microsoft rotates the certificate. We
+///    don't ship known hashes — the user / admin populates them.
 ///
-/// 3. **`.pinPublicKey(_:)`**: pin to a specific public-key hash
-///    (SPKI SHA-256). The user supplies expected hashes for
-///    `msdl.microsoft.com`. Highest assurance but breaks if Microsoft
-///    rotates keys. We don't ship known hashes — the user / admin
-///    populates them.
+/// Notes on a previously-considered `.pinAppleManaged` mode:
+/// Apple's public Security framework offers no clean API to
+/// distinguish OS-shipped anchors from MDM/user-installed anchors.
+/// `SecTrustSetAnchorCertificatesOnly(true)` without an explicit
+/// anchor list rejects every certificate, which is the opposite of
+/// the intended behavior. We removed the mode rather than ship
+/// something that DoSes the feature.
 ///
-/// `SymbolServer.init` accepts a `TrustPolicy`. The default
+/// SymbolServer.init accepts a `TrustPolicy`. The default
 /// `.systemTrust` preserves existing behavior.
 public enum SymbolServerTrustPolicy: Sendable {
     case systemTrust
-    case pinAppleManaged
-    case pinPublicKey(allowedSPKISHA256Hashes: Set<Data>)
+    case pinCertificateSHA256(allowedHashes: Set<Data>)
+
+    public static let `default`: SymbolServerTrustPolicy = .systemTrust
+
+    /// True when the policy will reject every certificate. Used by
+    /// `makeSession` to refuse a misconfigured policy at construction
+    /// time so the user doesn't see a silently-broken feature.
+    public var isVacuous: Bool {
+        switch self {
+        case .systemTrust: return false
+        case .pinCertificateSHA256(let allowed): return allowed.isEmpty
+        }
+    }
 }
 
 /// URLSessionDelegate that applies a `SymbolServerTrustPolicy` to
-/// every TLS handshake on the session. Stateless aside from the
-/// policy itself.
+/// every TLS handshake on the session.
 final class SymbolServerTrustDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
+    // @unchecked Sendable is required because NSObject is not
+    // Sendable. The stored `policy` is a Sendable value type, and
+    // the delegate has no mutable state, so the conformance is sound.
     let policy: SymbolServerTrustPolicy
 
     init(policy: SymbolServerTrustPolicy) {
@@ -59,57 +76,52 @@ final class SymbolServerTrustDelegate: NSObject, URLSessionDelegate, @unchecked 
 
         switch policy {
         case .systemTrust:
-            // Defer to the OS — same as the default URLSession path.
             completionHandler(.performDefaultHandling, nil)
 
-        case .pinAppleManaged:
-            // SecTrustEvaluateWithError uses the system anchors. We
-            // also clear the `kSecTrustReevaluateUsingNetwork` flag
-            // so we don't pick up custom anchors that user-installed
-            // profiles may have added.
-            SecTrustSetAnchorCertificatesOnly(serverTrust, true)
-            if SecTrustEvaluateWithError(serverTrust, nil) {
-                completionHandler(.useCredential, URLCredential(trust: serverTrust))
-            } else {
-                Logger.symbols.error("TLS pinning failed: Apple-managed-anchors mode rejected server cert for \(challenge.protectionSpace.host, privacy: .public)")
+        case .pinCertificateSHA256(let allowedHashes):
+            guard !allowedHashes.isEmpty else {
+                // makeSession should have refused this configuration,
+                // but log defensively in case a caller bypasses it.
+                Logger.symbols.fault("TLS pinning misconfigured: empty allowedHashes — rejecting all certs")
                 completionHandler(.cancelAuthenticationChallenge, nil)
+                return
             }
-
-        case .pinPublicKey(let allowedHashes):
             guard SecTrustEvaluateWithError(serverTrust, nil) else {
-                Logger.symbols.error("TLS pinning failed: trust eval failed for \(challenge.protectionSpace.host, privacy: .public)")
+                Logger.symbols.error("TLS pinning: trust eval failed for \(challenge.protectionSpace.host, privacy: .public)")
                 completionHandler(.cancelAuthenticationChallenge, nil)
                 return
             }
             let chain = (SecTrustCopyCertificateChain(serverTrust) as? [SecCertificate]) ?? []
             let anyMatch = chain.contains { cert in
-                guard let spkiHash = Self.spkiSHA256(of: cert) else { return false }
-                return allowedHashes.contains(spkiHash)
+                guard let hash = SymbolServerTrustDelegate.certificateSHA256(cert) else { return false }
+                return allowedHashes.contains(hash)
             }
             if anyMatch {
                 completionHandler(.useCredential, URLCredential(trust: serverTrust))
             } else {
-                Logger.symbols.error("TLS pinning failed: no chain cert matched the allowed SPKI hash set for \(challenge.protectionSpace.host, privacy: .public)")
+                Logger.symbols.error("TLS pinning: no chain cert matched the allowed cert-SHA256 set for \(challenge.protectionSpace.host, privacy: .public)")
                 completionHandler(.cancelAuthenticationChallenge, nil)
             }
         }
     }
 
-    /// SHA-256 of the certificate's Subject Public Key Info DER. The
-    /// caller compares the result against an admin-supplied allowlist.
-    static func spkiSHA256(of cert: SecCertificate) -> Data? {
-        guard let publicKey = SecCertificateCopyKey(cert),
-              let data = SecKeyCopyExternalRepresentation(publicKey, nil) as Data? else {
-            return nil
-        }
-        var hash = [UInt8](repeating: 0, count: 32)
+    /// SHA-256 of the certificate's DER-encoded bytes (the format
+    /// `openssl x509 -outform DER` produces). The caller compares
+    /// the result against an admin-supplied allowlist.
+    static func certificateSHA256(_ cert: SecCertificate) -> Data? {
+        let der = SecCertificateCopyData(cert) as Data
+        return der.isEmpty ? nil : sha256(der)
+    }
+
+    /// SHA-256 of arbitrary bytes. Split out from `certificateSHA256`
+    /// so tests can pin the hashing logic against known inputs
+    /// without needing to materialize a real `SecCertificate` (which
+    /// requires valid X.509 DER).
+    static func sha256(_ data: Data) -> Data {
+        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
         data.withUnsafeBytes { buf in
             _ = CC_SHA256(buf.baseAddress, CC_LONG(buf.count), &hash)
         }
         return Data(hash)
     }
 }
-
-// Bridge CommonCrypto's SHA-256 without importing the whole module
-// in source files that don't need it.
-import CommonCrypto

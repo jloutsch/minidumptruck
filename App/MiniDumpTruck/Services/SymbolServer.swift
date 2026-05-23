@@ -41,8 +41,15 @@ public actor SymbolServer {
 
     /// Build a URLSession with a TLS trust policy applied to every
     /// handshake. See `SymbolServerTrustPolicy` for the threat model
-    /// and the three available modes.
+    /// and the available modes.
+    ///
+    /// Refuses to build a session for a `.isVacuous` policy
+    /// (e.g. `.pinCertificateSHA256(allowedHashes: [])`) so a
+    /// misconfigured admin sees the bug at session creation rather
+    /// than as "all symbol fetches mysteriously fail."
     public static func makeSession(trustPolicy: SymbolServerTrustPolicy) -> URLSession {
+        precondition(!trustPolicy.isVacuous,
+                     "SymbolServerTrustPolicy must allow at least one cert; received an empty allowedHashes set which would reject every TLS handshake.")
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 15
         config.timeoutIntervalForResource = 30
