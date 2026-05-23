@@ -1,5 +1,7 @@
 # MiniDumpTruck
 
+[![CI](https://github.com/jloutsch/minidumptruck/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jloutsch/minidumptruck/actions/workflows/ci.yml)
+
 A native macOS application — and companion CLI — for analyzing Windows crash dump files (`.dmp`). Get WinDbg-style crash analysis without needing Windows or WinDbg.
 
 ![MiniDumpTruck Summary View](screenshots/crash-summary.png)

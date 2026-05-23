@@ -1,0 +1,52 @@
+name: CI
+
+# Build + test on every push to main and every PR.
+# Public-repo macOS runner minutes are free, so we run on every event
+# without trying to cache. The full suite (~846 tests in 117 suites)
+# completes in under a second once compiled; total wall-clock per run
+# is dominated by runner startup + Swift package resolve.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# Cancel in-progress CI runs for a branch when a newer commit comes in
+# on the same branch — saves runner minutes when force-pushing or
+# pushing fixups to an open PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: swift build + swift test
+    # macos-14 = Apple Silicon. Matches the release workflow runner so
+    # CI exercises the same toolchain we ship from.
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        # Pinned by full commit SHA per code-standards.md. Update by
+        # bumping both the SHA and the trailing comment when a new
+        # release ships.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Build
+        working-directory: App
+        run: swift build
+
+      - name: Test
+        working-directory: App
+        run: swift test
