@@ -113,7 +113,7 @@ class DumpViewModel {
 
     func goToAddress(_ address: UInt64) {
         selectedSection = .memory
-        memoryAddressText = String(format: "0x%016llX", address)
+        memoryAddressText = address.hexAddress
 
         // Try to find and select the memory region containing this address
         if let wrapper = documentReference,
@@ -124,7 +124,7 @@ class DumpViewModel {
 
     func goToAddressInDocument(_ address: UInt64, document: MinidumpDocument) {
         selectedSection = .memory
-        memoryAddressText = String(format: "0x%016llX", address)
+        memoryAddressText = address.hexAddress
 
         // Find and select the memory region containing this address
         if let region = document.memoryRegions.first(where: { $0.contains(address: address) }) {

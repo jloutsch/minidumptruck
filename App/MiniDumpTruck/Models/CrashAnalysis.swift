@@ -125,7 +125,7 @@ public struct StackFrame: Identifiable, Sendable, Codable {
         if let module = module, let offset = offsetInModule {
             return "\(module.shortName)+0x\(String(offset, radix: 16))"
         }
-        return String(format: "0x%016llX", address)
+        return address.hexAddress
     }
 
     public init(address: UInt64, module: ModuleInfo?, offsetInModule: UInt64?, symbol: ResolvedSymbol? = nil, frameType: FrameType, confidence: FrameConfidence) {

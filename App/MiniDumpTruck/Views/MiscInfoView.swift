@@ -58,7 +58,7 @@ struct MiscInfoView: View {
                     }
 
                     if let execFlags = miscInfo.processExecuteFlags {
-                        LabeledContent("Execute Flags", value: String(format: "0x%08X", execFlags))
+                        LabeledContent("Execute Flags", value: execFlags.hex32)
                     }
 
                     if let protected = miscInfo.protectedProcess, protected != 0 {
@@ -117,7 +117,7 @@ struct MiscInfoView: View {
             // Raw Data Section
             Section("Raw Data") {
                 LabeledContent("Structure Size", value: "\(miscInfo.sizeOfInfo) bytes")
-                LabeledContent("Flags", value: String(format: "0x%08X", miscInfo.flags.rawValue))
+                LabeledContent("Flags", value: miscInfo.flags.rawValue.hex32)
 
                 // Show which flags are set
                 VStack(alignment: .leading, spacing: 2) {

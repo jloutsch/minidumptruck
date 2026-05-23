@@ -55,7 +55,7 @@ struct HexView: View {
 
     private var headerView: some View {
         HStack {
-            Text("Region: \(String(format: "0x%016llX", region.baseAddress)) - \(String(format: "0x%016llX", region.endAddress))")
+            Text("Region: \(region.baseAddress.hexAddress) - \(region.endAddress.hexAddress)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

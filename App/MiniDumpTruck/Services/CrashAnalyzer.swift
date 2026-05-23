@@ -184,8 +184,8 @@ public struct CrashAnalyzer: Sendable {
             // Read saved FP at [fp] and saved LR at [fp+8].
             let (fpPlus8, overflow) = currentFP.addingReportingOverflow(8)
             guard !overflow,
-                  let savedFP = readUInt64(at: currentFP),
-                  let returnAddress = readUInt64(at: fpPlus8) else {
+                  let savedFP = memory.readUInt64(at: currentFP),
+                  let returnAddress = memory.readUInt64(at: fpPlus8) else {
                 break
             }
 
@@ -231,8 +231,8 @@ public struct CrashAnalyzer: Sendable {
             // Read saved RBP (at [RBP]) and return address (at [RBP+8])
             let (rbpPlus8, rbpOverflow) = currentRBP.addingReportingOverflow(8)
             guard !rbpOverflow,
-                  let savedRBP = readUInt64(at: currentRBP),
-                  let returnAddress = readUInt64(at: rbpPlus8) else {
+                  let savedRBP = memory.readUInt64(at: currentRBP),
+                  let returnAddress = memory.readUInt64(at: rbpPlus8) else {
                 break
             }
 
@@ -278,7 +278,7 @@ public struct CrashAnalyzer: Sendable {
             availableFromRsp64 = 0
         }
         let scanSize = Int(availableFromRsp64)
-        guard let stackData = readMemory(at: rsp, size: scanSize) else {
+        guard let stackData = memory.read(at: rsp, size: scanSize) else {
             return frames
         }
 
@@ -504,12 +504,4 @@ public struct CrashAnalyzer: Sendable {
         )
     }
 
-    /// Read memory from the dump (Memory64List then MemoryList fallback).
-    private func readMemory(at address: UInt64, size: Int) -> Data? {
-        memory.read(at: address, size: size)
-    }
-
-    private func readUInt64(at address: UInt64) -> UInt64? {
-        memory.readUInt64(at: address)
-    }
 }

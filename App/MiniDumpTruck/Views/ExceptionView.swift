@@ -34,7 +34,7 @@ struct ExceptionView: View {
                         GridRow {
                             Text("Code:")
                                 .fontWeight(.medium)
-                            Text(String(format: "0x%08X", exception.exceptionCode))
+                            Text(exception.exceptionCode.hex32)
                                 .fontDesign(.monospaced)
                         }
 
@@ -48,7 +48,7 @@ struct ExceptionView: View {
                         GridRow {
                             Text("Flags:")
                                 .fontWeight(.medium)
-                            Text(String(format: "0x%08X", exception.exceptionFlags))
+                            Text(exception.exceptionFlags.hex32)
                                 .fontDesign(.monospaced)
                         }
 
@@ -56,7 +56,7 @@ struct ExceptionView: View {
                             Text("Address:")
                                 .fontWeight(.medium)
                             HStack {
-                                Text(String(format: "0x%016llX", exception.exceptionAddress))
+                                Text(exception.exceptionAddress.hexAddress)
                                     .fontDesign(.monospaced)
 
                                 if let module = document.module(containing: exception.exceptionAddress) {
@@ -102,7 +102,7 @@ struct ExceptionView: View {
                                 HStack {
                                     Text("Parameter[\(index)]:")
                                         .fontWeight(.medium)
-                                    Text(String(format: "0x%016llX", param))
+                                    Text(param.hexAddress)
                                         .fontDesign(.monospaced)
                                 }
                             }
@@ -137,7 +137,7 @@ struct RegisterGridView: View {
                 Text("\(ipName):")
                     .fontWeight(.bold)
                     .frame(width: 40, alignment: .leading)
-                Text(String(format: "0x%016llX", context.instructionPointer))
+                Text(context.instructionPointer.hexAddress)
                     .fontDesign(.monospaced)
                     .foregroundStyle(.blue)
             }
@@ -171,7 +171,7 @@ struct RegisterGridView: View {
                 HStack {
                     Text("EFLAGS:")
                         .fontWeight(.medium)
-                    Text(String(format: "0x%08X", amd.eflags))
+                    Text(amd.eflags.hex32)
                         .fontDesign(.monospaced)
                     Text("[\(amd.eflagsDescription.joined(separator: " "))]")
                         .foregroundStyle(.secondary)
@@ -180,7 +180,7 @@ struct RegisterGridView: View {
                 HStack {
                     Text("CPSR:")
                         .fontWeight(.medium)
-                    Text(String(format: "0x%08X", arm.cpsr))
+                    Text(arm.cpsr.hex32)
                         .fontDesign(.monospaced)
                     Text("[\(arm.cpsrFlags.joined(separator: " "))]")
                         .foregroundStyle(.secondary)

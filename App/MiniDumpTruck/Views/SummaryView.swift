@@ -287,7 +287,7 @@ struct SummaryView: View {
                     HStack {
                         Text("Address:")
                             .fontWeight(.medium)
-                        Text(String(format: "0x%016llX", exception.exceptionAddress))
+                        Text(exception.exceptionAddress.hexAddress)
                             .fontDesign(.monospaced)
 
                         if let module = document.module(containing: exception.exceptionAddress) {

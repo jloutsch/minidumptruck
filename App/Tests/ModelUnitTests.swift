@@ -1191,7 +1191,9 @@ struct HandleEntryTests {
     @Test func handleHex() {
         let data = makeHandleEntryData(handle: 0x1FC)
         let entry = HandleEntry(from: data, at: 0, descriptorSize: HandleEntry.sizeV1)!
-        #expect(entry.handleHex == "0x1FC")
+        // Padded to 16 hex digits so it renders consistently next to
+        // other addresses in tables / exports.
+        #expect(entry.handleHex == "0x00000000000001FC")
     }
 
     @Test func accessHex() {

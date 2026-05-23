@@ -96,7 +96,7 @@ public struct HTMLExporter: Sendable {
 
         for warning in warnings {
             let streamName = warning.streamType?.displayName ?? "Unknown"
-            let offset = warning.offset.map { String(format: "0x%08X", $0) } ?? "-"
+            let offset = warning.offset.map { $0.hex32 } ?? "-"
             html += "<tr>"
             html += "<td>\(escapeHTML(streamName))</td>"
             html += "<td class=\"mono\">\(offset)</td>"
@@ -168,9 +168,9 @@ public struct HTMLExporter: Sendable {
         let moduleName = modules?.module(containing: exception.exceptionAddress)?.shortName
 
         var rows = ""
-        rows += tableRow("Exception Code", "<code>\(formatHex32(exception.exceptionCode))</code> (\(escapeHTML(exception.exceptionName)))")
+        rows += tableRow("Exception Code", "<code>\(exception.exceptionCode.hex32)</code> (\(escapeHTML(exception.exceptionName)))")
         rows += tableRow("Description", escapeHTML(exception.exceptionDescription))
-        rows += tableRow("Address", "<code>\(formatAddress(exception.exceptionAddress))</code>")
+        rows += tableRow("Address", "<code>\(exception.exceptionAddress.hexAddress)</code>")
         if let moduleName = moduleName {
             rows += tableRow("Module", escapeHTML(moduleName))
         }
@@ -179,7 +179,7 @@ public struct HTMLExporter: Sendable {
             rows += tableRow("Details", escapeHTML(details))
         }
         if !exception.exceptionParameters.isEmpty {
-            let params = exception.exceptionParameters.map { formatAddress($0) }.joined(separator: ", ")
+            let params = exception.exceptionParameters.map { $0.hexAddress }.joined(separator: ", ")
             rows += tableRow("Parameters", "<code>\(params)</code>")
         }
 
@@ -219,7 +219,7 @@ public struct HTMLExporter: Sendable {
         // Summary
         var summaryRows = ""
         summaryRows += tableRow("Exception", escapeHTML(summary.exceptionType))
-        summaryRows += tableRow("Faulting Address", "<code>\(formatAddress(summary.faultingAddress))</code>")
+        summaryRows += tableRow("Faulting Address", "<code>\(summary.faultingAddress.hexAddress)</code>")
         if let module = summary.faultingModule {
             summaryRows += tableRow("Faulting Module", escapeHTML(module.shortName))
         }
@@ -252,7 +252,7 @@ public struct HTMLExporter: Sendable {
                 html += "<tr>"
                 html += "<td>\(i)</td>"
                 html += "<td><span class=\"badge badge-sm\">\(typeStr)</span></td>"
-                html += "<td class=\"mono\">\(formatAddress(frame.address))</td>"
+                html += "<td class=\"mono\">\(frame.address.hexAddress)</td>"
                 html += "<td>\(escapeHTML(frame.displayAddress))</td>"
                 html += "<td><span class=\"badge badge-sm \(confClass)\">\(frame.confidence == .high ? "High" : frame.confidence == .medium ? "Medium" : "Low")</span></td>"
                 html += "</tr>"
@@ -288,8 +288,8 @@ public struct HTMLExporter: Sendable {
             if let name = name { rows += tableRow("Name", escapeHTML(name)) }
             rows += tableRow("Priority", "\(escapeHTML(thread.priorityDescription)) (class \(thread.priorityClass))")
             rows += tableRow("Suspend Count", "\(thread.suspendCount)")
-            rows += tableRow("TEB", "<code>\(formatAddress(thread.teb))</code>")
-            rows += tableRow("Stack", "<code>\(formatAddress(thread.stack.startOfMemoryRange))</code> (\(thread.stack.dataSize) bytes)")
+            rows += tableRow("TEB", "<code>\(thread.teb.hexAddress)</code>")
+            rows += tableRow("Stack", "<code>\(thread.stack.startOfMemoryRange.hexAddress)</code> (\(thread.stack.dataSize) bytes)")
 
             html += "<table class=\"info-table\">\(rows)</table>"
 
@@ -311,7 +311,7 @@ public struct HTMLExporter: Sendable {
                 }
 
                 for (name, value) in regs {
-                    html += "<tr><td class=\"mono\">\(name)</td><td class=\"mono\">\(formatAddress(value))</td></tr>"
+                    html += "<tr><td class=\"mono\">\(name)</td><td class=\"mono\">\(value.hexAddress)</td></tr>"
                 }
 
                 html += "</tbody></table></details>"
@@ -337,7 +337,7 @@ public struct HTMLExporter: Sendable {
         for module in modules {
             html += "<tr>"
             html += "<td title=\"\(escapeHTML(module.name))\">\(escapeHTML(module.shortName))</td>"
-            html += "<td class=\"mono\">\(formatAddress(module.baseAddress))</td>"
+            html += "<td class=\"mono\">\(module.baseAddress.hexAddress)</td>"
             html += "<td>\(formatSize(UInt64(module.sizeOfImage)))</td>"
             html += "<td>\(escapeHTML(module.version?.fileVersion ?? ""))</td>"
             html += "<td>\(escapeHTML(module.codeViewRecord?.pdbShortName ?? ""))</td>"
@@ -386,7 +386,7 @@ public struct HTMLExporter: Sendable {
 
         for entry in entries {
             html += "<tr>"
-            html += "<td class=\"mono\">\(formatAddress(entry.baseAddress))</td>"
+            html += "<td class=\"mono\">\(entry.baseAddress.hexAddress)</td>"
             html += "<td>\(formatSize(entry.regionSize))</td>"
             html += "<td>\(escapeHTML(entry.state.displayName))</td>"
             html += "<td>\(escapeHTML(entry.protect.shortDescription))</td>"
@@ -410,7 +410,7 @@ public struct HTMLExporter: Sendable {
         for module in modules {
             html += "<tr>"
             html += "<td>\(escapeHTML(module.shortName))</td>"
-            html += "<td class=\"mono\">\(formatAddress(module.baseAddress))</td>"
+            html += "<td class=\"mono\">\(module.baseAddress.hexAddress)</td>"
             html += "<td>\(formatSize(UInt64(module.sizeOfImage)))</td>"
             html += "<td>\(escapeHTML(module.timestamp.formatted()))</td>"
             html += "</tr>"
@@ -442,14 +442,6 @@ public struct HTMLExporter: Sendable {
             .replacingOccurrences(of: "'", with: "&#39;")
     }
 
-    private static func formatAddress(_ address: UInt64) -> String {
-        String(format: "0x%016llX", address)
-    }
-
-    private static func formatHex32(_ value: UInt32) -> String {
-        String(format: "0x%08X", value)
-    }
-
     private static func formatSize(_ size: UInt64) -> String {
         ByteCountFormatter.string(fromByteCount: Int64(clamping: size), countStyle: .file)
     }
@@ -477,7 +469,7 @@ public struct HTMLExporter: Sendable {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>\(title)</title>
         <style>
-        \(cssStylesheet)
+        \(HTMLExporterCSS.stylesheet)
         </style>
         </head>
         <body>
@@ -510,160 +502,4 @@ public struct HTMLExporter: Sendable {
         """
     }
 
-    // MARK: - CSS
-
-    private static let cssStylesheet = """
-        :root {
-            --bg: #ffffff;
-            --fg: #1a1a1a;
-            --bg-secondary: #f5f5f7;
-            --border: #d1d1d6;
-            --accent: #0071e3;
-            --header-bg: #1d1d1f;
-            --header-fg: #f5f5f7;
-            --table-stripe: #f9f9fb;
-            --mono-bg: #f0f0f2;
-            --red: #ff3b30;
-            --orange: #ff9500;
-            --green: #34c759;
-        }
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --bg: #1c1c1e;
-                --fg: #f5f5f7;
-                --bg-secondary: #2c2c2e;
-                --border: #3a3a3c;
-                --accent: #0a84ff;
-                --header-bg: #000000;
-                --header-fg: #f5f5f7;
-                --table-stripe: #252528;
-                --mono-bg: #2c2c2e;
-                --red: #ff453a;
-                --orange: #ff9f0a;
-                --green: #30d158;
-            }
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg);
-            color: var(--fg);
-            line-height: 1.6;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        header {
-            background: var(--header-bg);
-            color: var(--header-fg);
-            padding: 24px 32px;
-            border-radius: 12px;
-            margin-bottom: 24px;
-        }
-        header h1 { font-size: 1.5em; margin-bottom: 4px; }
-        header .subtitle { opacity: 0.7; font-size: 0.9em; }
-        header .timestamp { opacity: 0.5; font-size: 0.8em; margin-top: 8px; }
-        nav#toc {
-            background: var(--bg-secondary);
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-bottom: 24px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            align-items: center;
-        }
-        nav#toc a {
-            color: var(--accent);
-            text-decoration: none;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 0.85em;
-        }
-        nav#toc a:hover { background: var(--border); }
-        section, details {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 16px;
-        }
-        details > details {
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 12px;
-            margin: 8px 0;
-        }
-        h2 {
-            font-size: 1.2em;
-            margin-bottom: 12px;
-            display: inline;
-        }
-        h3 { font-size: 1em; margin: 16px 0 8px 0; }
-        summary {
-            cursor: pointer;
-            padding: 4px 0;
-            list-style: revert;
-        }
-        summary h2 { margin-bottom: 0; }
-        table { width: 100%; border-collapse: collapse; margin: 8px 0; }
-        .info-table th {
-            text-align: left;
-            width: 180px;
-            padding: 6px 12px;
-            font-weight: 600;
-            color: var(--fg);
-            vertical-align: top;
-        }
-        .info-table td { padding: 6px 12px; }
-        .data-table th {
-            text-align: left;
-            padding: 8px 12px;
-            font-weight: 600;
-            border-bottom: 2px solid var(--border);
-            font-size: 0.85em;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-        }
-        .data-table td {
-            padding: 6px 12px;
-            border-bottom: 1px solid var(--border);
-            font-size: 0.9em;
-        }
-        .data-table tbody tr:nth-child(even) { background: var(--table-stripe); }
-        .mono, code {
-            font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
-            font-size: 0.85em;
-        }
-        code {
-            background: var(--mono-bg);
-            padding: 2px 6px;
-            border-radius: 4px;
-        }
-        .badge {
-            display: inline-block;
-            padding: 2px 10px;
-            border-radius: 12px;
-            font-size: 0.75em;
-            font-weight: 600;
-            vertical-align: middle;
-        }
-        .badge-sm { padding: 1px 6px; font-size: 0.7em; }
-        .badge-green { background: var(--green); color: #fff; }
-        .badge-orange { background: var(--orange); color: #fff; }
-        .badge-red { background: var(--red); color: #fff; }
-        footer {
-            text-align: center;
-            padding: 24px;
-            font-size: 0.8em;
-            opacity: 0.5;
-        }
-        @media print {
-            body { max-width: none; padding: 0; }
-            header { border-radius: 0; }
-            section, details { break-inside: avoid; border-radius: 0; }
-            details { open: true; }
-            nav#toc { display: none; }
-        }
-    """
 }

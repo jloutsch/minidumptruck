@@ -65,14 +65,14 @@ struct MemoryListView: View {
                 }
             ), sortOrder: $sortOrder) {
                 TableColumn("Base Address", value: \.baseAddress) { region in
-                    Text(String(format: "0x%016llX", region.baseAddress))
+                    Text(region.baseAddress.hexAddress)
                         .fontDesign(.monospaced)
                         .font(.caption)
                 }
                 .width(min: 140, ideal: 160)
 
                 TableColumn("End Address") { region in
-                    Text(String(format: "0x%016llX", region.endAddress))
+                    Text(region.endAddress.hexAddress)
                         .fontDesign(.monospaced)
                         .font(.caption)
                 }

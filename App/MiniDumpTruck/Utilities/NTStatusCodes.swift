@@ -82,7 +82,7 @@ public enum NTStatusCodes {
 
     /// Get the name for an NTSTATUS code
     public static func name(for code: UInt32) -> String {
-        codes[code]?.name ?? String(format: "0x%08X", code)
+        codes[code]?.name ?? code.hex32
     }
 
     /// Get the description for an NTSTATUS code
