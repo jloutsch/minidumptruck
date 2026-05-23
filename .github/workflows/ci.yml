@@ -50,6 +50,18 @@ jobs:
         working-directory: App
         run: swift build
 
-      - name: Test
+      - name: Test (single retry on flake — see issue #67)
         working-directory: App
-        run: swift test
+        # Default parallel test scheduler has occasionally tripped a
+        # transient `Fatal error: Range requires lowerBound <=
+        # upperBound` inside Swift's own arm64e module interface — a
+        # toolchain quirk, not a real test failure. One retry catches
+        # that without masking real regressions: both attempts must
+        # fail for the step to fail. The `::warning::` annotation
+        # makes retries visible in the PR summary so we can escalate
+        # to `--num-workers 1` if the flake becomes recurrent.
+        run: |
+          if ! swift test; then
+            echo "::warning::First swift test attempt failed — retrying once. If this annotation appears repeatedly, escalate per issue #67 (consider --num-workers 1)."
+            swift test
+          fi
