@@ -8,17 +8,16 @@ DerivedData/
 .DS_Store
 *.swp
 *~
-
 # Test dump files (large binary files)
 *.dmp
-
 # Xcode
 xcuserdata/
 *.xccheckout
 *.xcscmblueprint
-
 # Swift Package Manager
 .swiftpm/
 Package.resolved
 dist/MiniDumpTruck.app/
 App/dist/
+# Release artifacts produced by scripts/build-app.sh
+build/

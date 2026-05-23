@@ -1,0 +1,71 @@
+name: Release
+
+# Build a signed (ad-hoc) .app, package it into a DMG, and attach it
+# to a GitHub Release whenever a `v*` tag is pushed.
+#
+# Trigger flow:
+#   1. git tag v0.1.0  (locally)
+#   2. git push origin v0.1.0
+#   3. GitHub Actions picks up the push, builds, publishes the Release.
+#
+# The workflow only fires on tag pushes — never on branch pushes or
+# PRs — so feature branches can't accidentally create releases.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# The release step writes a Release object and uploads an asset, so
+# the GITHUB_TOKEN needs write access to repo contents. Everything
+# else stays read-only.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build DMG and publish release
+    # macos-14 is the Apple Silicon runner. macos-latest currently
+    # aliases there too, but pinning to the explicit version avoids
+    # surprise behavior if GitHub flips the alias.
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        # Pinned by full commit SHA per code-standards.md (no `@v6`
+        # floating reference). Update by bumping both the SHA and the
+        # trailing comment when a new release ships.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Build .app + DMG
+        run: |
+          # GITHUB_REF_NAME is "v0.1.0" for a `v*` tag push; strip the
+          # leading `v` so the bundle version matches semver convention.
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Building version $VERSION"
+          ./scripts/build-app.sh "$VERSION"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DMG="build/release/MiniDumpTruck-${VERSION}-arm64.dmg"
+          if [[ ! -f "$DMG" ]]; then
+              echo "ERROR: expected $DMG to exist after build step" >&2
+              exit 1
+          fi
+          # `--generate-notes` pulls the conventional auto-generated
+          # changelog from merged PR titles between this tag and the
+          # previous one. Recipients see the same release notes shown
+          # in the GitHub UI.
+          gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              --notes-start-tag "$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo '')" \
+              "$DMG"

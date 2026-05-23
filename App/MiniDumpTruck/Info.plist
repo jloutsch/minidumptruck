@@ -2,6 +2,29 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleName</key>
+	<string>MiniDumpTruck</string>
+	<key>CFBundleDisplayName</key>
+	<string>MiniDumpTruck</string>
+	<key>CFBundleExecutable</key>
+	<string>MiniDumpTruck</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.github.jloutsch.minidumptruck</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<!-- CFBundleShortVersionString and CFBundleVersion are injected by
+	     scripts/build-app.sh from the git tag at release time. The
+	     defaults here keep the bundle valid for local one-off builds. -->
+	<key>CFBundleShortVersionString</key>
+	<string>0.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleDocumentTypes</key>
