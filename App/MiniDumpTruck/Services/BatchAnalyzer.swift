@@ -146,7 +146,10 @@ public struct BatchAnalyzer: Sendable {
     }
 
     /// Build aggregate summary from results
-    private static func buildSummary(from results: [BatchResult], totalFiles: Int) -> BatchSummary {
+    // Internal (not private) so unit tests can construct synthetic
+    // BatchResult inputs and verify aggregation / ranking directly,
+    // without standing up real .dmp files for every assertion.
+    static func buildSummary(from results: [BatchResult], totalFiles: Int) -> BatchSummary {
         var successCount = 0
         var crashCount = 0
         var moduleCounts: [String: Int] = [:]
