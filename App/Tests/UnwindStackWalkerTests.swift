@@ -141,6 +141,50 @@ struct UnwindStackWalkerTests {
         #expect(frames.first?.returnAddress == returnAddress)
     }
 
+    @Test func walksFrameWithAllocLargeOpInfo0() throws {
+        // ALLOC_LARGE with OpInfo=0 uses the next code slot as a
+        // 16-bit (little-endian) count of 8-byte words. Plant a slot
+        // whose raw little-endian value is 0x0204 (= 516); the
+        // prologue then allocated 516 * 8 = 4128 bytes. Use a
+        // non-trivial slot value so the bit-assembly is checked
+        // against the wrong-shift bug that previously lived here
+        // (codeOffset 0x04, unwindOp = 2 nibble, opInfo = 0 nibble).
+        //
+        // Wire bytes of the follow-up slot: 0x04 0x02 → reassembled
+        // little-endian = 0x0204 = 516.
+        var codes = SyntheticPE.code(codeOffset: 6, op: .allocLarge, opInfo: 0)
+        codes.append(0x04)  // slot byte 0 (low)
+        codes.append(0x02)  // slot byte 1 (high)
+
+        let fn = SyntheticPE.Function(
+            beginRVA: 0x1000,
+            endRVA: 0x1100,
+            prologSize: 6,
+            unwindCodes: codes,
+            flags: 0
+        )
+        let pe = SyntheticPE.build(functions: [fn])
+
+        let moduleBase: UInt64 = 0x10_0000
+        let stackBase: UInt64 = 0x0008_0000
+        let returnAddress = moduleBase + 0x5000
+        let allocBytes: Int = 516 * 8  // 4128
+
+        var stack = Data(count: 0x2_0000)
+        let rsp: UInt64 = stackBase + 0x1000
+        let rip: UInt64 = moduleBase + 0x1080
+        // After undoing the alloc, RSP is rsp + 4128 and the return
+        // address sits at that location.
+        stack.writeLEUInt64(returnAddress, at: 0x1000 + allocBytes)
+
+        let dump = try Self.makeDump(peBytes: pe, moduleBase: moduleBase,
+                                     stackBase: stackBase, stackBytes: stack)
+        let walker = UnwindStackWalker(dump: dump)
+        let frames = walker.walk(initialRIP: rip, initialRSP: rsp)
+        #expect(frames.first?.returnAddress == returnAddress,
+                "allocLarge slot must be reassembled from the raw little-endian wire bytes, not from shifted nibble fields")
+    }
+
     @Test func walksFrameWithMultipleOpcodesInOrder() throws {
         // Real-ish prologue: push RBP, sub RSP, 0x10. Two opcodes,
         // total stack delta of 24 (8 from push + 16 from alloc).

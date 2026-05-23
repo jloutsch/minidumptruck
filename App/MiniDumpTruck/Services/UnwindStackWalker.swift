@@ -151,11 +151,31 @@ public struct UnwindStackWalker: Sendable {
         // Iterate the chain in the order we collected (innermost
         // function first); this matches Microsoft's documented
         // semantics for chained info.
-        for rf in rfChain {
+        //
+        // Only the leaf entry's offsetInFunction is derived from RIP
+        // — the chained outer entries describe code regions we've
+        // already returned from, so ALL of their codes apply. Using
+        // RIP's offset against an unrelated chained beginRVA is both
+        // wrong (RIP isn't inside that range) and unsafe (a malicious
+        // chained record with beginRVA > rva would wrap the
+        // subtraction to a huge UInt32 that clamps to 255 anyway,
+        // but a chained record with beginRVA <= rva would produce a
+        // small offset that incorrectly skips applicable codes).
+        for (idx, rf) in rfChain.enumerated() {
             guard let info = unwindData.unwindInfo(at: rf.unwindInfoRVA) else {
                 return nil
             }
-            let offsetIntoFn = UInt8(min(rva &- rf.beginRVA, UInt32(UInt8.max)))
+            let offsetIntoFn: UInt8
+            if idx == 0 {
+                // rfChain[0] was looked up via `lookup(rva)`, so we
+                // know rva >= rf.beginRVA and the subtraction is
+                // safe. The clamp to UInt8.max covers functions
+                // whose prologue extends past byte 255 (malformed
+                // per spec, but we degrade rather than crash).
+                offsetIntoFn = UInt8(min(rva &- rf.beginRVA, UInt32(UInt8.max)))
+            } else {
+                offsetIntoFn = UInt8.max
+            }
             guard let newRSP = applyUnwindCodes(
                 info: info,
                 offsetInFunction: offsetIntoFn,
@@ -230,17 +250,27 @@ public struct UnwindStackWalker: Sendable {
                 // OpInfo selects the encoding:
                 //   0 = 16-bit slot * 8 (max 0x7FFF8 bytes)
                 //   1 = 32-bit slot (raw bytes)
+                //
+                // Each follow-up slot is a raw 16-bit little-endian
+                // value stored in the same 2-byte UNWIND_CODE shape:
+                // byte 0 = low byte, byte 1 = high byte. The parser
+                // splits byte 1 into (unwindOp = low nibble, opInfo
+                // = high nibble), so we reconstruct the original
+                // 16-bit value with byte 0 in the low half and byte
+                // 1 — assembled from its two nibbles — in the high
+                // half. A previous version reconstructed the slot
+                // wrong, producing attacker-influenced wrong RSP
+                // values that drove `memory.readUInt64(at: rsp)` to
+                // arbitrary dump-memory addresses.
                 guard i + 1 < codes.count else { return nil }
-                let lowSlot = codes[i + 1]
-                let lowU16 = UInt16(lowSlot.codeOffset) | (UInt16(lowSlot.unwindOp) << 4) | (UInt16(lowSlot.opInfo) << 8)
+                let lowU16 = slotAsUInt16(codes[i + 1])
                 let bytes: UInt32
                 if code.opInfo == 0 {
                     bytes = UInt32(lowU16) * 8
                     consumed = 2
                 } else if code.opInfo == 1 {
                     guard i + 2 < codes.count else { return nil }
-                    let highSlot = codes[i + 2]
-                    let highU16 = UInt16(highSlot.codeOffset) | (UInt16(highSlot.unwindOp) << 4) | (UInt16(highSlot.opInfo) << 8)
+                    let highU16 = slotAsUInt16(codes[i + 2])
                     bytes = UInt32(lowU16) | (UInt32(highU16) << 16)
                     consumed = 3
                 } else {
@@ -300,6 +330,17 @@ public struct UnwindStackWalker: Sendable {
             i += consumed
         }
         return rsp
+    }
+
+    /// Reconstruct the raw 16-bit little-endian value carried in an
+    /// UNWIND_CODE follow-up slot. The slot is 2 bytes on the wire
+    /// (low byte, high byte). The parser stored them as
+    /// (codeOffset = low byte, unwindOp = low nibble of high byte,
+    /// opInfo = high nibble of high byte), so we reassemble them
+    /// here.
+    private func slotAsUInt16(_ slot: UnwindCode) -> UInt16 {
+        let highByte = (UInt16(slot.opInfo) << 4) | UInt16(slot.unwindOp)
+        return UInt16(slot.codeOffset) | (highByte << 8)
     }
 
     /// How many opcode slots `code` consumes. Used when skipping a
