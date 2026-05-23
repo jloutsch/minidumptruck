@@ -323,6 +323,6 @@ public struct ModuleList: Sendable, Codable {
            let offset = module.offset(for: address) {
             return "\(module.shortName)+0x\(String(offset, radix: 16))"
         }
-        return String(format: "0x%016llX", address)
+        return address.hexAddress
     }
 }

@@ -178,7 +178,7 @@ public struct BatchAnalyzer: Sendable {
         let topExceptions = exceptionCounts
             .sorted { $0.value > $1.value }
             .map { (
-                code: String(format: "0x%08X", $0.key),
+                code: $0.key.hex32,
                 name: NTStatusCodes.name(for: $0.key),
                 count: $0.value
             ) }

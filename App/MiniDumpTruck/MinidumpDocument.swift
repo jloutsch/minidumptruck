@@ -79,7 +79,7 @@ struct MinidumpDocument: FileDocument {
 
     func resolveAddress(_ address: UInt64) -> String {
         guard let dump = parsedDump else {
-            return String(format: "0x%016llX", address)
+            return address.hexAddress
         }
         return MinidumpParser.resolveAddress(address, in: dump)
     }

@@ -65,7 +65,7 @@ struct ModuleListView: View {
                     .width(min: 100, ideal: 200)
 
                     TableColumn("Base Address", value: \.baseAddress) { module in
-                        Text(String(format: "0x%016llX", module.baseAddress))
+                        Text(module.baseAddress.hexAddress)
                             .fontDesign(.monospaced)
                             .font(.caption)
                     }
@@ -129,14 +129,14 @@ struct ModuleDetailView: View {
                         GridRow {
                             Text("Base Address:")
                                 .fontWeight(.medium)
-                            Text(String(format: "0x%016llX", module.baseAddress))
+                            Text(module.baseAddress.hexAddress)
                                 .fontDesign(.monospaced)
                         }
 
                         GridRow {
                             Text("End Address:")
                                 .fontWeight(.medium)
-                            Text(String(format: "0x%016llX", module.endAddress))
+                            Text(module.endAddress.hexAddress)
                                 .fontDesign(.monospaced)
                         }
 
@@ -219,7 +219,7 @@ struct ModuleDetailView: View {
                         GridRow {
                             Text("Checksum:")
                                 .fontWeight(.medium)
-                            Text(String(format: "0x%08X", module.checksum))
+                            Text(module.checksum.hex32)
                                 .fontDesign(.monospaced)
                         }
                     }

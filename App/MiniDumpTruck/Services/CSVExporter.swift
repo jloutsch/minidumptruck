@@ -49,15 +49,15 @@ public struct CSVExporter: Sendable {
             lines.append(csvRow([
                 module.shortName,
                 module.name,
-                formatAddress(module.baseAddress),
-                formatAddress(module.endAddress),
+                module.baseAddress.hexAddress,
+                module.endAddress.hexAddress,
                 String(module.sizeOfImage),
                 module.version?.fileVersion ?? "",
                 module.version?.productVersion ?? "",
                 module.version?.fileTypeDescription ?? "",
                 module.codeViewRecord?.pdbShortName ?? "",
                 module.codeViewRecord?.guidString ?? "",
-                formatHex32(module.checksum),
+                module.checksum.hex32,
                 formatTimestamp(module.timestamp)
             ]))
         }
@@ -97,12 +97,12 @@ public struct CSVExporter: Sendable {
                 thread.priorityDescription,
                 String(thread.priorityClass),
                 String(thread.suspendCount),
-                formatAddress(thread.stack.startOfMemoryRange),
+                thread.stack.startOfMemoryRange.hexAddress,
                 String(thread.stack.dataSize),
-                formatAddress(thread.teb),
-                ctx.map { formatAddress($0.instructionPointer) } ?? "",
-                ctx.map { formatAddress($0.stackPointer) } ?? "",
-                ctx.map { formatAddress($0.framePointer) } ?? "",
+                thread.teb.hexAddress,
+                ctx.map { $0.instructionPointer.hexAddress } ?? "",
+                ctx.map { $0.stackPointer.hexAddress } ?? "",
+                ctx.map { $0.framePointer.hexAddress } ?? "",
                 arch0.0,
                 arch0.1,
                 arch0.2,
@@ -119,11 +119,11 @@ public struct CSVExporter: Sendable {
     private static func arch0Through3(_ ctx: ThreadContext?) -> (String, String, String, String) {
         switch ctx {
         case .amd64(let amd):
-            return (formatAddress(amd.rax), formatAddress(amd.rcx),
-                    formatAddress(amd.rdx), formatAddress(amd.rbx))
+            return (amd.rax.hexAddress, amd.rcx.hexAddress,
+                    amd.rdx.hexAddress, amd.rbx.hexAddress)
         case .arm64(let arm):
-            return (formatAddress(arm.xRegs[0]), formatAddress(arm.xRegs[1]),
-                    formatAddress(arm.xRegs[2]), formatAddress(arm.xRegs[3]))
+            return (arm.xRegs[0].hexAddress, arm.xRegs[1].hexAddress,
+                    arm.xRegs[2].hexAddress, arm.xRegs[3].hexAddress)
         case .none:
             return ("", "", "", "")
         }
@@ -145,7 +145,7 @@ public struct CSVExporter: Sendable {
                 handle.accessHex,
                 String(handle.handleCount),
                 String(handle.pointerCount),
-                formatHex32(handle.attributes)
+                handle.attributes.hex32
             ]))
         }
 
@@ -162,8 +162,8 @@ public struct CSVExporter: Sendable {
 
         for entry in entries {
             lines.append(csvRow([
-                formatAddress(entry.baseAddress),
-                formatAddress(entry.allocationBase),
+                entry.baseAddress.hexAddress,
+                entry.allocationBase.hexAddress,
                 String(entry.regionSize),
                 entry.state.displayName,
                 entry.protect.shortDescription,
@@ -185,9 +185,9 @@ public struct CSVExporter: Sendable {
         for module in modules {
             lines.append(csvRow([
                 module.shortName,
-                formatAddress(module.baseAddress),
+                module.baseAddress.hexAddress,
                 String(module.sizeOfImage),
-                formatHex32(module.checksum),
+                module.checksum.hex32,
                 formatTimestamp(module.timestamp)
             ]))
         }
@@ -228,14 +228,6 @@ public struct CSVExporter: Sendable {
 
     private static func csvRow(_ fields: [String]) -> String {
         fields.map { escapeCSV($0) }.joined(separator: ",")
-    }
-
-    private static func formatAddress(_ address: UInt64) -> String {
-        String(format: "0x%016llX", address)
-    }
-
-    private static func formatHex32(_ value: UInt32) -> String {
-        String(format: "0x%08X", value)
     }
 
     private static func formatTimestamp(_ date: Date) -> String {

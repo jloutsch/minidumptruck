@@ -39,7 +39,7 @@ struct ThreadDetailView: View {
                         GridRow {
                             Text("TEB Address:")
                                 .fontWeight(.medium)
-                            Text(String(format: "0x%016llX", thread.teb))
+                            Text(thread.teb.hexAddress)
                                 .fontDesign(.monospaced)
                         }
                     }
@@ -52,14 +52,14 @@ struct ThreadDetailView: View {
                         GridRow {
                             Text("Start:")
                                 .fontWeight(.medium)
-                            Text(String(format: "0x%016llX", thread.stack.startOfMemoryRange))
+                            Text(thread.stack.startOfMemoryRange.hexAddress)
                                 .fontDesign(.monospaced)
                         }
 
                         GridRow {
                             Text("End:")
                                 .fontWeight(.medium)
-                            Text(String(format: "0x%016llX", thread.stack.endAddress))
+                            Text(thread.stack.endAddress.hexAddress)
                                 .fontDesign(.monospaced)
                         }
 
@@ -87,7 +87,7 @@ struct ThreadDetailView: View {
                                 HStack {
                                     Text("\(ipName):")
                                         .fontWeight(.bold)
-                                    Text(String(format: "0x%016llX", context.instructionPointer))
+                                    Text(context.instructionPointer.hexAddress)
                                         .fontDesign(.monospaced)
                                         .foregroundStyle(.blue)
 
@@ -115,7 +115,7 @@ struct ThreadDetailView: View {
                                             Text("\(reg.name):")
                                                 .fontWeight(.medium)
                                                 .frame(width: 35, alignment: .leading)
-                                            Text(String(format: "0x%016llX", reg.value))
+                                            Text(reg.value.hexAddress)
                                                 .fontDesign(.monospaced)
                                                 .font(.caption)
                                             Spacer()
@@ -135,7 +135,7 @@ struct ThreadDetailView: View {
                                 HStack {
                                     Text("\(spName):")
                                         .fontWeight(.bold)
-                                    Text(String(format: "0x%016llX", context.stackPointer))
+                                    Text(context.stackPointer.hexAddress)
                                         .fontDesign(.monospaced)
                                         .foregroundStyle(.green)
                                 }
@@ -157,7 +157,7 @@ struct ThreadDetailView: View {
                                     HStack {
                                         Text("EFLAGS:")
                                             .fontWeight(.medium)
-                                        Text(String(format: "0x%08X", amd.eflags))
+                                        Text(amd.eflags.hex32)
                                             .fontDesign(.monospaced)
                                     }
 
@@ -208,7 +208,7 @@ struct ThreadDetailView: View {
                                     HStack {
                                         Text("CPSR:")
                                             .fontWeight(.medium)
-                                        Text(String(format: "0x%08X", arm.cpsr))
+                                        Text(arm.cpsr.hex32)
                                             .fontDesign(.monospaced)
                                     }
 
@@ -241,14 +241,14 @@ struct ThreadDetailView: View {
                                             HStack(spacing: 4) {
                                                 Text("FPCR:")
                                                     .fontWeight(.medium)
-                                                Text(String(format: "0x%08X", arm.fpcr))
+                                                Text(arm.fpcr.hex32)
                                                     .fontDesign(.monospaced)
                                                     .font(.caption)
                                             }
                                             HStack(spacing: 4) {
                                                 Text("FPSR:")
                                                     .fontWeight(.medium)
-                                                Text(String(format: "0x%08X", arm.fpsr))
+                                                Text(arm.fpsr.hex32)
                                                     .fontDesign(.monospaced)
                                                     .font(.caption)
                                             }

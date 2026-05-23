@@ -66,12 +66,12 @@ public struct HandleEntry: Identifiable, Sendable, Codable {
 
     /// Format handle value as hex
     public var handleHex: String {
-        String(format: "0x%llX", handle)
+        handle.hexAddress
     }
 
     /// Format granted access as hex
     public var accessHex: String {
-        String(format: "0x%08X", grantedAccess)
+        grantedAccess.hex32
     }
 }
 

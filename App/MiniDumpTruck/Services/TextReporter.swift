@@ -97,9 +97,9 @@ public struct TextReporter: Sendable {
             lines.append("-" .repeated(72))
             lines.append("EXCEPTION")
             lines.append("-" .repeated(72))
-            lines.append("  Code: \(String(format: "0x%08X", exception.exceptionCode)) (\(exception.exceptionName))")
+            lines.append("  Code: \(exception.exceptionCode.hex32) (\(exception.exceptionName))")
             lines.append("  Description: \(exception.exceptionDescription)")
-            lines.append("  Address: \(String(format: "0x%016llX", exception.exceptionAddress))")
+            lines.append("  Address: \(exception.exceptionAddress.hexAddress)")
             if let module = dump.moduleList?.module(containing: exception.exceptionAddress) {
                 lines.append("  Module: \(module.shortName.sanitizedForOutput())")
             }
@@ -118,7 +118,7 @@ public struct TextReporter: Sendable {
 
             let summary = analysis.crashSummary
             lines.append("  Exception: \(summary.exceptionType)")
-            lines.append("  Faulting Address: \(String(format: "0x%016llX", summary.faultingAddress))")
+            lines.append("  Faulting Address: \(summary.faultingAddress.hexAddress)")
             if let module = summary.faultingModule {
                 lines.append("  Faulting Module: \(module.shortName.sanitizedForOutput())")
             }
@@ -156,7 +156,7 @@ public struct TextReporter: Sendable {
                     case .medium: confStr = "M"
                     case .low: confStr = "L"
                     }
-                    let addr = String(format: "0x%016llX", frame.address)
+                    let addr = frame.address.hexAddress
                     lines.append("    #\(String(format: "%2d", i)) [\(typeStr)] \(addr) \(frame.displayAddress.sanitizedForOutput()) [\(confStr)]")
                 }
                 lines.append("")
@@ -182,12 +182,12 @@ public struct TextReporter: Sendable {
                     // Architecture-neutral first line (IP / SP / FP). Then
                     // an architecture-specific second line so x64 callers
                     // still see RAX-RDX and ARM64 callers see X0-X3.
-                    lines.append("    \(ctx.ipRegisterName)=\(String(format: "0x%016llX", ctx.instructionPointer)) \(ctx.spRegisterName)=\(String(format: "0x%016llX", ctx.stackPointer)) \(ctx.fpRegisterName)=\(String(format: "0x%016llX", ctx.framePointer))")
+                    lines.append("    \(ctx.ipRegisterName)=\(ctx.instructionPointer.hexAddress) \(ctx.spRegisterName)=\(ctx.stackPointer.hexAddress) \(ctx.fpRegisterName)=\(ctx.framePointer.hexAddress)")
                     switch ctx {
                     case .amd64(let amd):
-                        lines.append("    RAX=\(String(format: "0x%016llX", amd.rax)) RBX=\(String(format: "0x%016llX", amd.rbx)) RCX=\(String(format: "0x%016llX", amd.rcx)) RDX=\(String(format: "0x%016llX", amd.rdx))")
+                        lines.append("    RAX=\(amd.rax.hexAddress) RBX=\(amd.rbx.hexAddress) RCX=\(amd.rcx.hexAddress) RDX=\(amd.rdx.hexAddress)")
                     case .arm64(let arm):
-                        lines.append("    X0=\(String(format: "0x%016llX", arm.xRegs[0])) X1=\(String(format: "0x%016llX", arm.xRegs[1])) X2=\(String(format: "0x%016llX", arm.xRegs[2])) X3=\(String(format: "0x%016llX", arm.xRegs[3]))")
+                        lines.append("    X0=\(arm.xRegs[0].hexAddress) X1=\(arm.xRegs[1].hexAddress) X2=\(arm.xRegs[2].hexAddress) X3=\(arm.xRegs[3].hexAddress)")
                     }
                 }
             }
@@ -201,7 +201,7 @@ public struct TextReporter: Sendable {
             lines.append("-" .repeated(72))
 
             for module in moduleList.modules {
-                let addr = String(format: "0x%016llX", module.baseAddress)
+                let addr = module.baseAddress.hexAddress
                 let size = ByteCountFormatter.string(fromByteCount: Int64(module.sizeOfImage), countStyle: .file)
                 let version = module.version?.fileVersion ?? ""
                 lines.append("  \(addr) \(module.shortName.sanitizedForOutput()) (\(size)) \(version.sanitizedForOutput())")
@@ -216,7 +216,7 @@ public struct TextReporter: Sendable {
             lines.append("-" .repeated(72))
 
             for entry in memoryInfoList.entries {
-                let addr = String(format: "0x%016llX", entry.baseAddress)
+                let addr = entry.baseAddress.hexAddress
                 let size = ByteCountFormatter.string(fromByteCount: Int64(clamping: entry.regionSize), countStyle: .file)
                 lines.append("  \(addr) \(size) \(entry.state.displayName) \(entry.protect.shortDescription) \(entry.type.displayName)")
             }

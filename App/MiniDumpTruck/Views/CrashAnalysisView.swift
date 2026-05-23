@@ -88,7 +88,7 @@ struct CrashAnalysisView: View {
 
         // Summary
         report += "EXCEPTION: \(analysis.crashSummary.exceptionType)\n"
-        report += "ADDRESS: \(String(format: "0x%016llX", analysis.crashSummary.faultingAddress))\n"
+        report += "ADDRESS: \(analysis.crashSummary.faultingAddress.hexAddress)\n"
         if let module = analysis.crashSummary.faultingModule {
             report += "MODULE: \(module.shortName)\n"
         }
@@ -179,7 +179,7 @@ struct CrashAnalysisView: View {
                     GridRow {
                         Text("Address:")
                             .fontWeight(.medium)
-                        Text(String(format: "0x%016llX", summary.faultingAddress))
+                        Text(summary.faultingAddress.hexAddress)
                             .fontDesign(.monospaced)
                     }
 
