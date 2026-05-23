@@ -356,4 +356,60 @@ struct BatchAnalyzerTests {
         #expect(summary.failedParses == 0)
         #expect(summary.crashesDetected == 0)
     }
+
+    @Test func topBlamedModulesSortedDescendingByCount() {
+        // Synthetic aggregation: build BatchResults whose CrashAnalysis
+        // blames three different modules with known counts, then verify
+        // buildSummary returns topBlamedModules sorted by count desc.
+        // Previous tests gated blame assertions on `dump.exception !=
+        // nil`, so when the bundled test.dmp had no exception the
+        // ranking logic was effectively untested.
+        let modA = makeModule(name: "alpha.dll", base: 0x100_0000)
+        let modB = makeModule(name: "bravo.dll", base: 0x200_0000)
+        let modC = makeModule(name: "charlie.dll", base: 0x300_0000)
+        let frame = StackFrame(
+            address: 0x1234,
+            module: nil,
+            offsetInModule: nil,
+            frameType: .returnAddress,
+            confidence: .medium
+        )
+        let summaryStub = CrashSummary(
+            exceptionType: "TEST",
+            exceptionDescription: "",
+            faultingAddress: 0,
+            faultingModule: nil,
+            probableCause: "",
+            recommendation: ""
+        )
+        func resultBlaming(_ module: ModuleInfo) -> BatchResult {
+            let analysis = CrashAnalysis(
+                stackFrames: [],
+                blameModule: BlameResult(module: module, frame: frame, reason: .directCrash),
+                crashSummary: summaryStub,
+                confidence: .medium
+            )
+            return BatchResult(
+                fileName: module.shortName,
+                outcome: .success(makeMinimalDump(), analysis: analysis)
+            )
+        }
+        // alpha 3 times, bravo 2 times, charlie 1 time.
+        let results: [BatchResult] = [
+            resultBlaming(modA), resultBlaming(modA), resultBlaming(modA),
+            resultBlaming(modB), resultBlaming(modB),
+            resultBlaming(modC),
+        ]
+
+        let summary = BatchAnalyzer.buildSummary(from: results, totalFiles: results.count)
+
+        let top = summary.topBlamedModules
+        #expect(top.count == 3)
+        #expect(top[0].module == "alpha.dll")
+        #expect(top[0].count == 3)
+        #expect(top[1].module == "bravo.dll")
+        #expect(top[1].count == 2)
+        #expect(top[2].module == "charlie.dll")
+        #expect(top[2].count == 1)
+    }
 }

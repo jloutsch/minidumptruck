@@ -109,6 +109,33 @@ struct BinaryReaderTests {
         #expect(data.readFixedUTF16String(at: 0, maxBytes: 10) == "Test")
     }
 
+    @Test func readFixedUTF16StringFillsBufferWithNoNullTerminator() {
+        // 4 UTF-16 code units, no trailing null. The function should
+        // return the whole string since the loop's stop condition is
+        // either a null pair or the buffer's end.
+        let data = Data([0x54, 0x00, 0x65, 0x00, 0x73, 0x00, 0x74, 0x00])
+        #expect(data.readFixedUTF16String(at: 0, maxBytes: 8) == "Test")
+    }
+
+    @Test func readFixedUTF16StringRejectsOffsetPlusMaxBytesOverflow() {
+        // offset + maxBytes overflows Int → the guard must reject and
+        // return nil. Without the overflow guard, an attacker-supplied
+        // offset/length pair could pass the `end <= count` check after
+        // wrapping and read attacker-influenced memory.
+        let data = Data([0x00, 0x00, 0x00, 0x00])
+        #expect(data.readFixedUTF16String(at: Int.max, maxBytes: 4) == nil)
+        #expect(data.readFixedUTF16String(at: Int.max - 1, maxBytes: Int.max) == nil)
+    }
+
+    @Test func readFixedUTF16StringRejectsNegativeOffset() {
+        // Negative offset (despite Int being signed) must be refused —
+        // otherwise subscripting `self[offset..<...]` would trap or
+        // wrap.
+        let data = Data([0x54, 0x00, 0x65, 0x00])
+        #expect(data.readFixedUTF16String(at: -1, maxBytes: 4) == nil)
+        #expect(data.readFixedUTF16String(at: -100, maxBytes: 4) == nil)
+    }
+
     // MARK: - BinaryDataReader Tests
 
     @Test func binaryDataReaderPosition() {

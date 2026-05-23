@@ -150,6 +150,30 @@ struct JSONExporterTests {
         #expect(pretty.contains("\n"))
     }
 
+    @Test func compactJSONHasNoInteriorNewlinesAndIsParseable() throws {
+        // The CLI export command uses `prettyPrint: false`. Existing
+        // tests only compared compact-to-pretty sizes — none asserted
+        // that the compact output is itself well-formed JSON that
+        // round-trips through `JSONSerialization`. A regression that
+        // produced concatenated-but-invalid JSON in the compact path
+        // would have shipped silently.
+        let url = Self.testFile("test.dmp")
+        try #require(FileManager.default.fileExists(atPath: url.path))
+        let data = try Data(contentsOf: url)
+        let dump = try MinidumpParser.parse(data: data)
+
+        let compact = JSONExporter.generateJSON(from: dump, analysis: nil, prettyPrint: false)
+
+        #expect(!compact.contains("\n"),
+                "compact JSON must not contain interior newlines")
+        // Round-trip via JSONSerialization to prove the output is
+        // syntactically valid JSON.
+        let compactData = try #require(compact.data(using: .utf8))
+        let parsed = try JSONSerialization.jsonObject(with: compactData)
+        #expect(parsed is [String: Any],
+                "compact JSON must parse as a top-level object")
+    }
+
     @Test func jsonRoundTripsViaDecoder() throws {
         let url = Self.testFile("test.dmp")
         try #require(FileManager.default.fileExists(atPath: url.path))
