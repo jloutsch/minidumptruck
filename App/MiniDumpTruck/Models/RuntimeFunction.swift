@@ -53,7 +53,20 @@ public struct RuntimeFunctionTable: Sendable {
     public let functions: [RuntimeFunction]
 
     public init(functions: [RuntimeFunction]) {
-        self.functions = functions.sorted { $0.beginRVA < $1.beginRVA }
+        // Real PE .pdata is required by spec to be sorted by
+        // BeginAddress, and every shipping Windows DLL satisfies that.
+        // Check first in O(n); only fall back to a defensive sort if
+        // the input is actually unsorted (malformed PE or test fixture
+        // that ignored the contract). For ntdll-sized tables (~50k
+        // entries) this skips ~800k comparisons per dump open.
+        var sorted = true
+        if functions.count >= 2 {
+            for i in 1..<functions.count where functions[i].beginRVA < functions[i - 1].beginRVA {
+                sorted = false
+                break
+            }
+        }
+        self.functions = sorted ? functions : functions.sorted { $0.beginRVA < $1.beginRVA }
     }
 
     /// Parse a flat `.pdata` byte buffer into a `RuntimeFunctionTable`.

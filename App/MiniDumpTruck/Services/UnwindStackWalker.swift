@@ -32,11 +32,15 @@ public struct UnwindStackWalker: Sendable {
     }
 
     private let memory: MemoryReading
-    /// Module base address -> parsed unwind data. Constructed lazily
-    /// from `ModuleList`; modules whose `.pdata` isn't captured in
-    /// the dump are simply absent.
-    private let modules: [UInt64: ModuleUnwindData]
-    private let moduleList: ModuleList?
+    /// Modules sorted by `baseAddress` for binary-search lookup by
+    /// RIP. PE images never overlap in a process VAS, so `(base,
+    /// endAddress)` ranges are disjoint and binary search is exact.
+    private let sortedModules: [ModuleInfo]
+    /// Per-module unwind-data cache, built on demand. We avoid the
+    /// .pdata read + sort cost at dump-open time — a 100-module dump
+    /// where only a handful of frames need unwinding now pays the per-
+    /// module cost only for the modules actually touched.
+    private let cache: ModuleUnwindCache
 
     /// DoS / runaway-walk cap. Real call stacks are deep but
     /// bounded; this matches what WinDbg shows in practice.
@@ -46,26 +50,22 @@ public struct UnwindStackWalker: Sendable {
     public static let maxChainDepth = 8
 
     public init(dump: ParsedMinidump) {
-        self.memory = DumpMemoryReader(dump: dump)
-        self.moduleList = dump.moduleList
-        var built: [UInt64: ModuleUnwindData] = [:]
-        for module in dump.moduleList?.modules ?? [] {
-            if built[module.baseAddress] != nil { continue }
-            if let data = ModuleUnwindData(
-                reader: memory,
-                imageBase: module.baseAddress,
-                imageSize: module.sizeOfImage
-            ) {
-                built[module.baseAddress] = data
-            }
-        }
-        self.modules = built
+        let mem = DumpMemoryReader(dump: dump)
+        self.memory = mem
+        let modules = dump.moduleList?.modules ?? []
+        self.sortedModules = modules.sorted { $0.baseAddress < $1.baseAddress }
+        self.cache = ModuleUnwindCache(reader: mem)
     }
 
-    /// True if at least one module has parseable unwind data —
-    /// without that, callers should skip the table walk entirely
-    /// and use the heuristic scanner.
-    public var hasAnyUnwindData: Bool { !modules.isEmpty }
+    /// True if at least one module advertises an exception directory.
+    /// Cheap to compute — only walks each module's PE header until one
+    /// answers yes; does not pay for the full `.pdata` read.
+    public var hasAnyUnwindData: Bool {
+        for module in sortedModules {
+            if cache.hasExceptionDirectory(for: module) { return true }
+        }
+        return false
+    }
 
     /// Walk the stack starting from (RIP, RSP). Returns frames in
     /// inner-to-outer order. The first element is the caller of the
@@ -115,8 +115,8 @@ public struct UnwindStackWalker: Sendable {
     }
 
     private func unwindOneFrame(rip: UInt64, rsp: UInt64) -> OneFrame? {
-        guard let module = moduleList?.module(containing: rip),
-              let unwindData = modules[module.baseAddress] else {
+        guard let module = module(containing: rip),
+              let unwindData = cache.data(for: module) else {
             return nil
         }
         let rva = UInt32(truncatingIfNeeded: rip - module.baseAddress)
@@ -358,5 +358,76 @@ public struct UnwindStackWalker: Sendable {
         case .saveNonvolFar, .saveXMM128Far:
             return 3
         }
+    }
+
+    /// Binary search `sortedModules` for the module whose [base, end)
+    /// range covers `address`. Replaces the previous O(modules) linear
+    /// scan in the per-frame hot path.
+    private func module(containing address: UInt64) -> ModuleInfo? {
+        guard !sortedModules.isEmpty else { return nil }
+        var lo = 0
+        var hi = sortedModules.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if sortedModules[mid].baseAddress <= address {
+                lo = mid + 1
+            } else {
+                hi = mid
+            }
+        }
+        guard lo > 0 else { return nil }
+        let candidate = sortedModules[lo - 1]
+        return candidate.contains(address: address) ? candidate : nil
+    }
+}
+
+/// Lazy per-module unwind-data cache. Reference-typed so multiple
+/// `UnwindStackWalker` copies (it's a struct) share the same memo
+/// table — and so first-touch parsing can mutate the cache without
+/// requiring the walker itself to be a class. Internal lock makes
+/// concurrent `walk()` from different threads safe.
+///
+/// The cache stores `ModuleUnwindData?` (not just `ModuleUnwindData`)
+/// so a failed build is remembered: we don't retry a malformed PE on
+/// every frame.
+private final class ModuleUnwindCache: @unchecked Sendable {
+    private let reader: MemoryReading
+    private let lock = NSLock()
+    private var built: [UInt64: ModuleUnwindData?] = [:]
+    private var eligibility: [UInt64: Bool] = [:]
+
+    init(reader: MemoryReading) {
+        self.reader = reader
+    }
+
+    /// Cheap pre-check: does this module's PE header advertise an
+    /// exception directory? `hasAnyUnwindData` uses this so it can
+    /// answer without paying the .pdata read cost.
+    func hasExceptionDirectory(for module: ModuleInfo) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if let cached = eligibility[module.baseAddress] { return cached }
+        let has = ModuleUnwindData.hasExceptionDirectory(
+            reader: reader,
+            imageBase: module.baseAddress,
+            imageSize: module.sizeOfImage
+        )
+        eligibility[module.baseAddress] = has
+        return has
+    }
+
+    /// Full unwind data for a module, built on first request and
+    /// memoized. Returns nil if the module has no usable unwind data
+    /// (no exception directory, malformed .pdata, etc).
+    func data(for module: ModuleInfo) -> ModuleUnwindData? {
+        lock.lock(); defer { lock.unlock() }
+        if let cached = built[module.baseAddress] { return cached }
+        let result = ModuleUnwindData(
+            reader: reader,
+            imageBase: module.baseAddress,
+            imageSize: module.sizeOfImage
+        )
+        built[module.baseAddress] = result
+        eligibility[module.baseAddress] = (result != nil)
+        return result
     }
 }

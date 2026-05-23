@@ -43,6 +43,25 @@ public struct ModuleUnwindData: Sendable {
         self.runtimeFunctions = table
     }
 
+    /// Cheap eligibility check: does this module's PE header advertise
+    /// a non-empty exception directory? Used by the unwind cache to
+    /// answer `hasAnyUnwindData` without paying the .pdata read + sort
+    /// cost upfront. A `true` here does not guarantee the full
+    /// `init?` will succeed (a malformed .pdata still fails), but a
+    /// `false` is conclusive — no unwind data possible.
+    public static func hasExceptionDirectory(
+        reader: MemoryReading,
+        imageBase: UInt64,
+        imageSize: UInt32
+    ) -> Bool {
+        guard let dir = locateExceptionDirectory(
+            reader: reader,
+            imageBase: imageBase,
+            imageSize: imageSize
+        ) else { return false }
+        return dir.size > 0
+    }
+
     /// PE data-directory entry: RVA + byte size.
     private struct DataDirectoryEntry { let rva: UInt32; let size: UInt32 }
 
