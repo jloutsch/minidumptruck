@@ -36,13 +36,24 @@ public actor SymbolServer {
     /// Default URLSession with per-request and overall resource
     /// timeouts. A slow-loris MitM (or a degraded MSDL) shouldn't be
     /// able to keep all 8 concurrent fetch slots stalled for minutes.
-    private static let defaultSession: URLSession = {
+    /// Trust evaluation uses `.systemTrust` — matches the OS default.
+    private static let defaultSession: URLSession = makeSession(trustPolicy: .systemTrust)
+
+    /// Build a URLSession with a TLS trust policy applied to every
+    /// handshake. See `SymbolServerTrustPolicy` for the threat model
+    /// and the three available modes.
+    public static func makeSession(trustPolicy: SymbolServerTrustPolicy) -> URLSession {
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 15     // single-request stall budget
-        config.timeoutIntervalForResource = 30    // overall completion budget
-        config.waitsForConnectivity = false       // fail fast on no-network
-        return URLSession(configuration: config)
-    }()
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 30
+        config.waitsForConnectivity = false
+        if case .systemTrust = trustPolicy {
+            // No delegate needed — saves a SessionDelegate instance.
+            return URLSession(configuration: config)
+        }
+        let delegate = SymbolServerTrustDelegate(policy: trustPolicy)
+        return URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+    }
 
     public init(baseURL: URL = SymbolServer.microsoftPublicURL,
                 urlSession: URLSession? = nil) {
