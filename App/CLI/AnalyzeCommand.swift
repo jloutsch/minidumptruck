@@ -138,15 +138,28 @@ struct AnalyzeCommand: AsyncParsableCommand {
         // code 1 ArgumentParser would produce otherwise.
         let contents: [URL]
         do {
+            // Request `isRegularFile` so we can filter out symlinks
+            // that resolve to directories. A file named `crash.dmp`
+            // that's actually a symlink-to-directory would otherwise
+            // pass the .dmp extension filter and crash the single-
+            // file path when Data(contentsOf:) follows the symlink and
+            // hits a directory.
             contents = try FileManager.default.contentsOfDirectory(
                 at: directory,
-                includingPropertiesForKeys: nil
+                includingPropertiesForKeys: [.isRegularFileKey]
             )
         } catch {
             throw CLIError.ioError(error.localizedDescription)
         }
         return contents
             .filter { $0.pathExtension.lowercased() == "dmp" }
+            .filter { url in
+                // resourceValues follows symlinks, so a symlink to a
+                // regular file still counts as `isRegularFile == true`
+                // (legitimate). Only symlink-to-directory and weirder
+                // file types (FIFOs, sockets) get filtered.
+                (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
+            }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 }
