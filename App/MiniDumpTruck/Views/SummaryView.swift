@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import MiniDumpTruckCore
 
 struct SummaryView: View {
@@ -258,10 +259,22 @@ struct SummaryView: View {
 
     private func exceptionSection(_ exception: ExceptionInfo) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Exception", systemImage: "exclamationmark.triangle")
-                .font(.headline)
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.red)
+            // Split the Label into separate Image + Text so the .red
+            // colorant applies ONLY to the text. The previous Label
+            // applied `.foregroundStyle(.red)` to both icon and text;
+            // a full-opacity red icon plus red text in high-contrast
+            // light mode may fall below WCAG AA contrast against the
+            // window background. Using `.symbolRenderingMode(.hierarchical)`
+            // with the system-resolved tint lets the icon scale its
+            // alpha to remain legible.
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle")
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.red)
+                Text("Exception")
+                    .foregroundStyle(.red)
+            }
+            .font(.headline)
 
             GroupBox {
                 VStack(alignment: .leading, spacing: 8) {
@@ -323,6 +336,21 @@ struct SummaryView: View {
 
                 Spacer()
 
+                // Copy Verdict — one-click plain-text copy of the
+                // exception type, blamed module, probable cause, and
+                // recommendation. Saves the DFIR responder from
+                // navigating to the Analysis tab and stitching the
+                // verdict together by hand when triaging into a ticket.
+                Button {
+                    copyVerdict(analysis)
+                } label: {
+                    Label("Copy Verdict", systemImage: "doc.on.doc")
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Copy the exception type, blamed module, probable cause, and recommendation as plain text.")
+
                 ConfidenceChip(confidence: analysis.confidence)
             }
 
@@ -372,6 +400,30 @@ struct SummaryView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    /// Build a plain-text verdict — exception type, blamed module
+    /// (when present), probable cause, recommendation — and write it
+    /// to the system pasteboard. The format is line-oriented and
+    /// includes labels so a recipient pasting into a ticket / chat
+    /// can read it without the surrounding UI for context.
+    private func copyVerdict(_ analysis: CrashAnalysis) {
+        var lines: [String] = []
+        lines.append("Crash Verdict")
+        lines.append("Exception: \(analysis.crashSummary.exceptionType)")
+        if !analysis.crashSummary.exceptionDescription.isEmpty {
+            lines.append("Description: \(analysis.crashSummary.exceptionDescription)")
+        }
+        if let blame = analysis.blameModule {
+            lines.append("Blamed module: \(blame.module.shortName)")
+            lines.append("Reason: \(blame.reasonDescription)")
+        }
+        lines.append("")
+        lines.append("Probable cause: \(analysis.crashSummary.probableCause)")
+        lines.append("Recommendation: \(analysis.crashSummary.recommendation)")
+        let text = lines.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private func systemSection(_ systemInfo: SystemInfo) -> some View {

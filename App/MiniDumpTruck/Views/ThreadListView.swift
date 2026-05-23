@@ -89,8 +89,12 @@ struct ThreadRowView: View {
     var body: some View {
         HStack {
             if isFaulting {
+                // The "Faulting" badge below already communicates this
+                // state to VoiceOver. Hide the decorative icon so the
+                // user doesn't hear the same fact twice.
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
+                    .accessibilityHidden(true)
             }
 
             VStack(alignment: .leading, spacing: 4) {
