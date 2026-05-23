@@ -91,4 +91,4 @@ MiniDumpTruck parses the Windows Minidump format directly:
 
 ## License
 
-MIT
+[GNU GPLv3](LICENSE)
