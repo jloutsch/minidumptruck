@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Orchestrates "fetch PDBs for every module in a parsed dump, parse
 /// them, and hand back a `[baseAddress: PDBSymbolTable]` map" — the
@@ -32,9 +33,28 @@ public actor SymbolicationService {
     /// Modules without a CV record, with malformed records, or that
     /// fail to fetch/parse are simply absent from the result — the
     /// `Symbolicator` then falls back to its PE-export tier.
+    /// Per-session counters for observability — incremented as modules
+    /// resolve. Snapshotted via `stats()` for a debug UI / log line.
+    public struct Stats: Sendable, Equatable {
+        public var attempted: Int = 0
+        public var cacheHits: Int = 0
+        public var serverFetches: Int = 0
+        public var parseSuccesses: Int = 0
+        public var corruptionEvictions: Int = 0
+        public var failures: Int = 0  // any path that produced no symbols
+    }
+    private var counters = Stats()
+
+    /// Current session statistics. Useful for "Why are no symbols
+    /// showing?" debugging — the Console log carries detail, this
+    /// gives an at-a-glance summary.
+    public func stats() -> Stats { counters }
+
     public func loadSymbols(for dump: ParsedMinidump) async -> [UInt64: PDBSymbolTable] {
         let modules = dump.moduleList?.modules ?? []
         var result: [UInt64: PDBSymbolTable] = [:]
+
+        Logger.symbols.info("symbolicating \(modules.count) modules")
 
         // Fetch concurrently up to `maxConcurrent`. Microsoft's symbol
         // server is fast and tolerant of parallel requests, but a
@@ -64,11 +84,19 @@ public actor SymbolicationService {
             }
         }
 
+        Logger.symbols.info("symbolication complete: \(result.count) of \(modules.count) modules resolved (stats: attempted=\(self.counters.attempted) cacheHits=\(self.counters.cacheHits) serverFetches=\(self.counters.serverFetches) failures=\(self.counters.failures) evicted=\(self.counters.corruptionEvictions))")
         return result
     }
 
     /// Schedule a fetch+parse subtask if the module has a usable PDB
     /// identity. Returns true if a subtask was added to the group.
+    ///
+    /// Implements **cache corruption recovery**: if a cache hit parses
+    /// successfully, return it. If it FAILS to parse (partial write
+    /// from an older build, user tampering, MSDL serving HTML during
+    /// outage on a previous run), evict the entry and re-fetch once
+    /// from the server. This makes the cache self-healing without
+    /// requiring the user to know about `clear()`.
     private func scheduleIfFetchable(
         _ module: ModuleInfo,
         into group: inout TaskGroup<(UInt64, PDBSymbolTable?)?>
@@ -77,17 +105,48 @@ public actor SymbolicationService {
         let baseAddress = module.baseAddress
         let cache = self.cache
         let server = self.server
-        group.addTask {
-            guard let pdbData = await server.fetchCached(key, cache: cache) else {
+        counters.attempted += 1
+        group.addTask { [weak self] in
+            // Try cache first.
+            if let cachedData = await cache.data(for: key) {
+                await self?.recordCacheHit()
+                if let symbols = try? PDBPublics.parse(cachedData), !symbols.isEmpty {
+                    await self?.recordParseSuccess()
+                    return (baseAddress, PDBSymbolTable(symbols: symbols))
+                }
+                // Cached bytes failed to parse — corruption recovery.
+                Logger.symbols.notice("cached PDB for \(key.pdbName, privacy: .public) failed to parse; evicting and re-fetching")
+                await cache.evict(key)
+                await self?.recordEviction()
+            }
+            // Either cache miss or post-eviction refetch.
+            do {
+                let freshData = try await server.fetch(key)
+                try? await cache.store(freshData, for: key)
+                await self?.recordServerFetch()
+                if let symbols = try? PDBPublics.parse(freshData), !symbols.isEmpty {
+                    await self?.recordParseSuccess()
+                    return (baseAddress, PDBSymbolTable(symbols: symbols))
+                }
+                // Fresh bytes also failed to parse — server-side
+                // problem. Log + drop, don't loop.
+                Logger.symbols.error("freshly-fetched PDB for \(key.pdbName, privacy: .public) failed to parse")
+                await self?.recordFailure()
+                return (baseAddress, nil)
+            } catch {
+                await self?.recordFailure()
                 return (baseAddress, nil)
             }
-            guard let symbols = try? PDBPublics.parse(pdbData), !symbols.isEmpty else {
-                return (baseAddress, nil)
-            }
-            return (baseAddress, PDBSymbolTable(symbols: symbols))
         }
         return true
     }
+
+    // Counter mutations stay on the actor.
+    private func recordCacheHit() { counters.cacheHits += 1 }
+    private func recordServerFetch() { counters.serverFetches += 1 }
+    private func recordParseSuccess() { counters.parseSuccesses += 1 }
+    private func recordEviction() { counters.corruptionEvictions += 1 }
+    private func recordFailure() { counters.failures += 1 }
 
     /// Derive a `PDBIdentity` from a module's CodeView record. Returns
     /// nil when the record is missing, malformed, or doesn't carry a

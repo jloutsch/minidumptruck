@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// On-disk cache for PDBs downloaded from a Microsoft symbol server.
 ///
@@ -49,7 +50,22 @@ public actor SymbolCache {
     /// Read the cached PDB bytes, if present. Returns nil on cache miss
     /// or read failure (permissions, race with eviction, etc.).
     public func data(for key: PDBIdentity) -> Data? {
-        try? Data(contentsOf: url(for: key))
+        do {
+            let data = try Data(contentsOf: url(for: key))
+            Logger.symbols.debug("cache hit \(key.pdbName, privacy: .public) (\(data.count) bytes)")
+            return data
+        } catch {
+            // CocoaError.fileReadNoSuchFile is the common case (cache
+            // miss) — log at trace level so we don't spam. Other errors
+            // (permission denied, IO failure) are notable.
+            let nsErr = error as NSError
+            if nsErr.domain == NSCocoaErrorDomain && nsErr.code == NSFileReadNoSuchFileError {
+                Logger.symbols.trace("cache miss \(key.pdbName, privacy: .public)")
+            } else {
+                Logger.symbols.error("cache read failed for \(key.pdbName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+            return nil
+        }
     }
 
     /// Store PDB bytes under the cache key. Writes atomically via a
@@ -63,7 +79,24 @@ public actor SymbolCache {
         try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
         // Atomic option writes to a temp file and renames into place.
         try data.write(to: final, options: .atomic)
+        Logger.symbols.info("cache store \(key.pdbName, privacy: .public) (\(data.count) bytes)")
         return final
+    }
+
+    /// Remove a single cache entry. Used by the corruption-recovery
+    /// path in `SymbolicationService` when a cached PDB fails to parse:
+    /// evict, re-fetch, retry. Best-effort — never throws.
+    public func evict(_ key: PDBIdentity) {
+        let target = url(for: key)
+        try? fileManager.removeItem(at: target)
+        // Also clean up the now-empty parent directory so the cache
+        // doesn't accumulate empty <GUID><AGE> dirs over time.
+        let parent = target.deletingLastPathComponent()
+        if let contents = try? fileManager.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil),
+           contents.isEmpty {
+            try? fileManager.removeItem(at: parent)
+        }
+        Logger.symbols.info("cache evict \(key.pdbName, privacy: .public)")
     }
 
     /// Delete all cached PDBs. Used by a "Clear Symbol Cache" settings

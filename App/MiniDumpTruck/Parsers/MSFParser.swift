@@ -205,6 +205,12 @@ public struct MSFFile: Sendable {
     }
 
     // Concatenate `BlockSize` bytes per block index, truncated to `limit`.
+    //
+    // Performance: a 5 MB symbol record stream at 4 KB blocks is 1250
+    // iterations. The earlier implementation called `data.subdata(in:)`
+    // per block, which allocates a fresh `Data` each time. We now copy
+    // directly from the source buffer into the destination via
+    // `withUnsafeBytes`, eliminating the per-block allocation.
     private static func concatenateBlocks(
         _ blockIndices: [UInt32],
         blockSize: UInt32,
@@ -213,17 +219,25 @@ public struct MSFFile: Sendable {
     ) throws -> Data {
         var out = Data(capacity: limit)
         let blockSizeInt = Int(blockSize)
+
+        // Validate all block indices first so we don't half-fill `out`
+        // before discovering a bad one.
         for blockIdx in blockIndices {
             let offset = Int(blockIdx) * blockSizeInt
             guard offset >= 0, offset + blockSizeInt <= data.count else {
                 throw ParseError.blockIndexOutOfRange(blockIdx)
             }
-            // Stop early when we've reached the recorded byte count —
-            // the last block is typically partially used.
-            let remaining = limit - out.count
-            guard remaining > 0 else { break }
-            let take = min(blockSizeInt, remaining)
-            out.append(data.subdata(in: offset..<(offset + take)))
+        }
+
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            guard let base = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+            for blockIdx in blockIndices {
+                let offset = Int(blockIdx) * blockSizeInt
+                let remaining = limit - out.count
+                guard remaining > 0 else { return }
+                let take = min(blockSizeInt, remaining)
+                out.append(base.advanced(by: offset), count: take)
+            }
         }
         return out
     }

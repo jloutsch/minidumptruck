@@ -185,6 +185,28 @@ struct SymbolCacheTests {
                             guid: String(repeating: "a", count: 32), age: 1) != nil)
     }
 
+    @Test func evictRemovesEntryAndCleansUpParentDirectory() async throws {
+        let (cache, root, cleanup) = makeIsolatedCache()
+        defer { cleanup() }
+        let key = validIdentity(pdbName: "evict.pdb",
+                                guid: String(repeating: "c", count: 32), age: 1)
+        try await cache.store(Data("payload".utf8), for: key)
+        let beforeEvict = await cache.exists(key)
+        #expect(beforeEvict == true)
+
+        await cache.evict(key)
+
+        let afterEvict = await cache.exists(key)
+        #expect(afterEvict == false)
+        // The <GUID><AGE> parent directory should also be gone so the
+        // cache doesn't accumulate empty dirs over time.
+        let parent = await cache.url(for: key).deletingLastPathComponent()
+        #expect(!FileManager.default.fileExists(atPath: parent.path),
+                "evict must remove the empty parent directory")
+        // The pdb-name dir at the top can remain (other ages may exist).
+        _ = root
+    }
+
     @Test func differentAgesAreIndependentEntries() async throws {
         // Same GUID with different ages is technically a different
         // PDB build; the cache must treat them as independent.

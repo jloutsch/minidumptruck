@@ -254,15 +254,20 @@ public enum PDBPublics {
         let rva = section.virtualAddress &+ symOffset
 
         // Name starts at payloadStart + 10, null-terminated ASCII.
+        //
+        // Performance: avoid `data.subdata(in:)` + `String(data:encoding:)`
+        // (two allocations per symbol; for a 10 k-symbol PDB that's
+        // 20 k transient allocations). Use a Data slice (no copy) plus
+        // `String(decoding:as:)` which builds the String directly from
+        // the bytes.
         let nameStart = payloadStart + 10
         var nameEnd = nameStart
         while nameEnd < payloadEnd && data[nameEnd] != 0 {
             nameEnd += 1
         }
-        let nameBytes = data.subdata(in: nameStart..<nameEnd)
-        guard let name = String(data: nameBytes, encoding: .ascii),
-              !name.isEmpty
-        else { return nil }
+        guard nameStart < nameEnd else { return nil }
+        let name = String(decoding: data[nameStart..<nameEnd], as: Unicode.ASCII.self)
+        guard !name.isEmpty else { return nil }
 
         return Symbol(name: name, rva: rva)
     }

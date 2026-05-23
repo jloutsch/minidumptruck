@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Fetches PDBs from a Microsoft symbol server (default: msdl.microsoft.com).
 ///
@@ -66,27 +67,34 @@ public actor SymbolServer {
     /// "no symbols, degrade gracefully" rather than user-visible
     /// errors.
     public func fetch(_ key: PDBIdentity) async throws -> Data {
-        guard isEnabled else { throw FetchError.offline }
+        guard isEnabled else {
+            Logger.symbols.info("server disabled, skipping fetch \(key.pdbName, privacy: .public)")
+            throw FetchError.offline
+        }
         guard let url = url(for: key) else { throw FetchError.malformedURL }
 
+        Logger.symbols.info("fetching \(key.pdbName, privacy: .public) from \(url.host ?? "?", privacy: .public)")
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await urlSession.data(from: url)
         } catch {
-            // Wrap so callers can pattern-match on FetchError without
-            // caring about URLSession's specific error types.
+            Logger.symbols.error("network failure for \(key.pdbName, privacy: .public): \(error.localizedDescription, privacy: .public)")
             throw FetchError.networkFailure(error as any Error & Sendable)
         }
 
         guard let http = response as? HTTPURLResponse else {
+            Logger.symbols.error("non-HTTP response for \(key.pdbName, privacy: .public)")
             throw FetchError.httpError(0)
         }
         switch http.statusCode {
         case 200:
+            Logger.symbols.info("fetched \(key.pdbName, privacy: .public) (\(data.count) bytes)")
             return data
         case 404:
+            Logger.symbols.notice("MSDL 404 for \(key.pdbName, privacy: .public) — PDB not available on this server")
             throw FetchError.notFound
         default:
+            Logger.symbols.error("HTTP \(http.statusCode) for \(key.pdbName, privacy: .public)")
             throw FetchError.httpError(http.statusCode)
         }
     }
@@ -103,6 +111,8 @@ public actor SymbolServer {
             try? await cache.store(data, for: key)
             return data
         } catch {
+            // fetch() already logged the specific reason; the caller
+            // just sees nil and degrades to module+offset.
             return nil
         }
     }
