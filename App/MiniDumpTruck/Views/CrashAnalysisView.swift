@@ -31,8 +31,27 @@ struct CrashAnalysisView: View {
                     stackSection(analysis.stackFrames)
 
                 } else if isAnalyzing {
-                    ProgressView("Analyzing crash...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // Constrained-height frame so the spinner sits in
+                    // a predictable region rather than expanding to
+                    // fill the ScrollView. Adds context lines below
+                    // so a 2-3s analyze on a large dump gives the
+                    // user something to read instead of staring at a
+                    // bare spinner.
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        Text("Analyzing crash...")
+                            .font(.headline)
+                        Text("Walking stack, resolving modules, attributing blame.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("Usually takes a second or two; larger full-memory dumps may take longer.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 200)
                 } else {
                     ContentUnavailableView(
                         "No Analysis Available",
@@ -153,8 +172,15 @@ struct CrashAnalysisView: View {
                     }
                 }
 
+                // `reasonDescription` is the single most important
+                // string in the analysis — the WHY of the crash. It
+                // was previously rendered at `.secondary` weight,
+                // making it visually weaker than the module name
+                // above. Promoted to medium weight at primary
+                // foreground so the verdict stands out.
                 Text(blame.reasonDescription)
-                    .foregroundStyle(.secondary)
+                    .font(.callout)
+                    .fontWeight(.medium)
 
                 Button("View Module Details") {
                     viewModel.selectModule(blame.module)
@@ -232,6 +258,12 @@ struct CrashAnalysisView: View {
                                 }
                                 Button("Copy entire stack") {
                                     copyToClipboard(stackText(frames))
+                                }
+                                if let module = frame.module {
+                                    Divider()
+                                    Button("Reveal Module in Modules tab") {
+                                        viewModel.selectModule(module)
+                                    }
                                 }
                             }
 
@@ -327,9 +359,16 @@ struct CrashAnalysisView: View {
                 // Per-row .textSelection is required for drag-to-select
                 // — verified empirically: parent ScrollView .textSelection
                 // does not propagate to nested LazyVStack rows.
+                // Branch on `symbol != nil` so a symbolicated frame
+                // (`module!function+0xNN`) renders in `.primary` and a
+                // raw `module+0xNN` frame renders in `.secondary`.
+                // The previous `module != nil` branch made every
+                // module-backed frame look identical and gave the
+                // DFIR responder no glance-difference between
+                // resolved and raw frames.
                 Text(frame.displayAddress)
                     .fontDesign(.monospaced)
-                    .foregroundStyle(frame.module != nil ? .primary : .secondary)
+                    .foregroundStyle(frame.symbol != nil ? .primary : .secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)

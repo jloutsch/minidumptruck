@@ -59,8 +59,16 @@ struct ModuleListView: View {
                     }
                 ), sortOrder: $sortOrder) {
                     TableColumn("Name", value: \.shortName) { module in
+                        // Long module paths (especially fully-qualified
+                        // Windows DLL paths) wrap to two lines and break
+                        // the fixed table row height, misaligning every
+                        // adjacent column. Lock to single-line + middle
+                        // truncation so column alignment stays stable.
                         Text(module.shortName)
                             .fontWeight(.medium)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(module.name)
                     }
                     .width(min: 100, ideal: 200)
 
