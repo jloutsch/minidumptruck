@@ -81,6 +81,14 @@ if [[ -n "$VERSION" ]]; then
 fi
 
 echo "→ Ad-hoc codesigning"
+# --timestamp=none: an ad-hoc signature can't be promoted to a
+#   notarizable signature anyway, so skipping the Apple timestamp
+#   server avoids a CI dependency that occasionally flakes.
+# --options runtime: applies Hardened Runtime flags. Enforced by
+#   macOS regardless of signing identity.
+# --deep: deprecated by Apple but still functional for a single-
+#   binary bundle with no embedded frameworks. Kept for now; revisit
+#   if Apple removes it.
 codesign --force \
     --sign - \
     --entitlements "$ENTITLEMENTS" \
@@ -100,10 +108,13 @@ DMG_PATH="$BUILD_DIR/${APP_NAME}-${EFFECTIVE_VERSION}-arm64.dmg"
 
 echo "→ Creating DMG at $DMG_PATH"
 # Stage the .app into a clean directory so the DMG's volume root
-# contains only the app (not stray dotfiles).
+# contains only the app (not stray dotfiles). Include a symlink to
+# /Applications so the recipient can drag-install with one motion
+# inside the mounted DMG — the convention every signed Mac DMG uses.
 STAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "$STAGE_DIR"' EXIT
 cp -R "$APP_BUNDLE" "$STAGE_DIR/"
+ln -s /Applications "$STAGE_DIR/Applications"
 
 hdiutil create \
     -volname "$APP_NAME" \

@@ -60,12 +60,14 @@ jobs:
               echo "ERROR: expected $DMG to exist after build step" >&2
               exit 1
           fi
-          # `--generate-notes` pulls the conventional auto-generated
-          # changelog from merged PR titles between this tag and the
-          # previous one. Recipients see the same release notes shown
-          # in the GitHub UI.
-          gh release create "$GITHUB_REF_NAME" \
-              --title "$GITHUB_REF_NAME" \
-              --generate-notes \
-              --notes-start-tag "$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo '')" \
-              "$DMG"
+          # `--generate-notes` pulls the auto-generated changelog from
+          # merged PR titles between this tag and the previous one.
+          # On the FIRST release there is no previous tag, so we
+          # conditionally include `--notes-start-tag` — passing an
+          # empty value is malformed for `gh release create`.
+          ARGS=(--title "$GITHUB_REF_NAME" --generate-notes)
+          PREV_TAG="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+          if [[ -n "$PREV_TAG" ]]; then
+              ARGS+=(--notes-start-tag "$PREV_TAG")
+          fi
+          gh release create "$GITHUB_REF_NAME" "${ARGS[@]}" "$DMG"
