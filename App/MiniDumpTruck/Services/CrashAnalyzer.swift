@@ -11,12 +11,14 @@ public struct CrashAnalyzer: Sendable {
 
     private let memory: DumpMemoryReader
     private let symbolicator: Symbolicator
+    private let unwindWalker: UnwindStackWalker
 
     public init(dump: ParsedMinidump,
                 pdbTables: [UInt64: PDBSymbolTable] = [:]) {
         self.dump = dump
         self.memory = DumpMemoryReader(dump: dump)
         self.symbolicator = Symbolicator(dump: dump, pdbTables: pdbTables)
+        self.unwindWalker = UnwindStackWalker(dump: dump)
     }
 
     /// Analyze the crash and return results
@@ -90,6 +92,25 @@ public struct CrashAnalyzer: Sendable {
         // Architecture-specific frame-pointer walking.
         switch context {
         case .amd64(let amd):
+            // Prefer table-based unwinding (issue #3): walk the
+            // module's .pdata/.xdata to reverse the prologue, which
+            // works correctly for optimized release code that omits
+            // the frame pointer. Frames produced this way are
+            // high-confidence — they match WinDbg's `k`.
+            let walkerFrames = unwindWalker.walk(initialRIP: amd.rip, initialRSP: amd.rsp)
+            for walked in walkerFrames where !seenAddresses.contains(walked.returnAddress) {
+                frames.append(createFrame(
+                    address: walked.returnAddress,
+                    type: .returnAddress,
+                    confidence: .high
+                ))
+                seenAddresses.insert(walked.returnAddress)
+            }
+            // RBP-chain walk as a fallback — useful for code compiled
+            // with frame pointers preserved (debug builds, frame-
+            // pointer-enabled libraries). The seen-addresses set
+            // prevents double-counting frames the unwind walker
+            // already produced.
             let rbpFrames = walkRBPChain(rbp: amd.rbp, rsp: amd.rsp, thread: thread)
             for frame in rbpFrames where !seenAddresses.contains(frame.address) {
                 frames.append(frame)
