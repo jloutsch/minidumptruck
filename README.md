@@ -97,14 +97,15 @@ Keyboard shortcuts: `⌘G` Go to Address, `⇧⌘E` Export HTML, `⇧⌘S` Expor
 
 ## Usage — CLI
 
-```
-USAGE: minidumptruck-cli <subcommand>
+Every subcommand takes a `<path>` as its first positional argument. The path can be either a single `.dmp` file or a directory — when you pass a directory, the CLI finds every `.dmp` inside and processes them as a batch.
 
-SUBCOMMANDS:
-  analyze (default)       Analyze crash dump file(s) and print a report.
-  export                  Export crash dump data in various formats.
-  info                    Show quick summary of a crash dump.
 ```
+minidumptruck-cli analyze <path> [--verbose] [--summary] [--jobs N] [--max-file-size BYTES]
+minidumptruck-cli export  <path> [--format text|html|csv|json] [--output DIR] [--verbose]
+minidumptruck-cli info    <path>
+```
+
+Append `--help` to any subcommand for the full flag reference (`minidumptruck-cli analyze --help`).
 
 ### Examples
 
