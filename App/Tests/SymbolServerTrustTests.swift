@@ -88,6 +88,18 @@ struct SymbolServerTrustTests {
         #expect(SymbolServerTrustDelegate.sha256(Data()) == expected)
     }
 
+    @Test func sha256HelperMatchesKnownVectorForNonEmptyInput() {
+        // SHA-256 of "abc" =
+        //   ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+        let expected = Data([
+            0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea,
+            0x41, 0x41, 0x40, 0xde, 0x5d, 0xae, 0x22, 0x23,
+            0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c,
+            0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00, 0x15, 0xad,
+        ])
+        #expect(SymbolServerTrustDelegate.sha256(Data("abc".utf8)) == expected)
+    }
+
     @Test func sha256HelperProducesDistinctHashesForDistinctInputs() {
         let a = SymbolServerTrustDelegate.sha256(Data("hello".utf8))
         let b = SymbolServerTrustDelegate.sha256(Data("world".utf8))
