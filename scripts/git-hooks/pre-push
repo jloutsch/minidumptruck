@@ -1,0 +1,43 @@
+#!/usr/bin/env sh
+#
+# Refuse any push whose destination is a protected branch.
+#
+# This is a backstop, not the only guard. The multi-agent workers are already
+# denied `git push` at the tool level, and the Scribe must route every push
+# through scripts/multi-agent/git-push-guard.sh, which does its own main check
+# and records violations. This hook fires regardless of how a push was
+# initiated -- including a human's stray `git push origin main` -- which is
+# what makes it worth having on a repo with no server-side branch protection
+# (public GitHub free plan: no protected-branch rules).
+#
+# Why it lives here rather than under husky:
+#
+#   core.hooksPath points at this directory, which is TRACKED IN GIT. Every
+#   worktree therefore has it the moment it is created, with no install step
+#   and no Node toolchain. The previous arrangement pointed core.hooksPath at
+#   an untracked `.husky/_` that only existed in whichever worktree last ran
+#   the installer -- so a fresh worktree resolved hooks to a missing directory
+#   and the hook silently did not fire.
+#
+# git passes: $1 = remote name, $2 = remote URL.
+# stdin lines: <local ref> <local sha> <remote ref> <remote sha>
+
+status=0
+
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+	# A push with nothing to update gives an empty remote ref; skip it.
+	[ -z "$remote_ref" ] && continue
+
+	branch=${remote_ref#refs/heads/}
+
+	case "$branch" in
+	main | master)
+		echo "pre-push: refusing to push to protected branch '$branch'." >&2
+		echo "          Push a task branch instead (e.g. auto/<issue>-<slug>)" >&2
+		echo "          and land it through a reviewed pull request." >&2
+		status=1
+		;;
+	esac
+done
+
+exit $status
