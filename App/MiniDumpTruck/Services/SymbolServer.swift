@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import os
 
 /// Fetches PDBs from a Microsoft symbol server (default: msdl.microsoft.com).
