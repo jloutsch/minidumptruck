@@ -3,6 +3,9 @@
 // network egress. Each test installs its own per-request handler.
 
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 final class StubURLProtocol: URLProtocol, @unchecked Sendable {
 
