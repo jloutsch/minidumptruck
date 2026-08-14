@@ -1,5 +1,5 @@
 import Foundation
-import Compression
+import CZlib
 import Testing
 @testable import MiniDumpTruckCore
 
@@ -7,7 +7,7 @@ import Testing
 
 /// Builds a ZIP buffer in memory: local file headers + data + central directory + EOCD.
 /// Per-entry: provide name, uncompressed data, and compression method.
-/// For DEFLATE, this helper does the deflation using Compression.framework.
+/// For DEFLATE, this helper does the deflation using zlib.
 struct SyntheticZipBuilder {
     struct Entry {
         let name: String
@@ -88,11 +88,24 @@ struct SyntheticZipBuilder {
         if input.isEmpty { return Data() }
         let dstCapacity = max(input.count * 2, 64)
         var dst = Data(count: dstCapacity)
+        var stream = z_stream()
+        // Negative windowBits emits a bare deflate stream with no RFC-1950 header,
+        // which is the form ZIP stores and the form the reader expects.
+        let initStatus = deflateInit2_(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED,
+                                       -MAX_WBITS, 8, Z_DEFAULT_STRATEGY,
+                                       ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+        guard initStatus == Z_OK else { return Data() }
+        defer { deflateEnd(&stream) }
         let written = input.withUnsafeBytes { srcPtr -> Int in
             let src = srcPtr.bindMemory(to: UInt8.self).baseAddress!
             return dst.withUnsafeMutableBytes { dstPtr -> Int in
                 let dstP = dstPtr.bindMemory(to: UInt8.self).baseAddress!
-                return compression_encode_buffer(dstP, dstCapacity, src, input.count, nil, COMPRESSION_ZLIB)
+                stream.next_in = UnsafeMutablePointer(mutating: src)
+                stream.avail_in = uInt(input.count)
+                stream.next_out = dstP
+                stream.avail_out = uInt(dstCapacity)
+                guard CZlib.deflate(&stream, Z_FINISH) == Z_STREAM_END else { return 0 }
+                return dstCapacity - Int(stream.avail_out)
             }
         }
         return dst.prefix(written)
