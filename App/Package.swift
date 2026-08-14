@@ -47,12 +47,16 @@ let package = Package(
         .library(name: "MiniDumpTruckCore", targets: ["MiniDumpTruckCore"])
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-argument-parser", exact: "1.7.0")
+        .package(url: "https://github.com/apple/swift-argument-parser", exact: "1.7.0"),
+        .package(url: "https://github.com/apple/swift-crypto", exact: "4.5.1")
     ],
     targets: [
         // Core library for testing (non-UI code only)
         .target(
             name: "MiniDumpTruckCore",
+            dependencies: [
+                .product(name: "Crypto", package: "swift-crypto")
+            ],
             path: "MiniDumpTruck",
             exclude: [
                 "Info.plist",

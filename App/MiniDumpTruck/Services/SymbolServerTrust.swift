@@ -2,7 +2,7 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
-import CommonCrypto
+import Crypto
 import os
 
 /// TLS server-trust evaluation hooks for `SymbolServer`.
@@ -121,10 +121,6 @@ final class SymbolServerTrustDelegate: NSObject, URLSessionDelegate, @unchecked 
     /// without needing to materialize a real `SecCertificate` (which
     /// requires valid X.509 DER).
     static func sha256(_ data: Data) -> Data {
-        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-        data.withUnsafeBytes { buf in
-            _ = CC_SHA256(buf.baseAddress, CC_LONG(buf.count), &hash)
-        }
-        return Data(hash)
+        Data(SHA256.hash(data: data))
     }
 }
