@@ -51,10 +51,13 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-crypto", exact: "4.5.1")
     ],
     targets: [
+        // System zlib, used for DEFLATE on every platform
+        .systemLibrary(name: "CZlib", path: "CZlib"),
         // Core library for testing (non-UI code only)
         .target(
             name: "MiniDumpTruckCore",
             dependencies: [
+                "CZlib",
                 .product(name: "Crypto", package: "swift-crypto")
             ],
             path: "MiniDumpTruck",
@@ -86,7 +89,7 @@ let package = Package(
         // Test target for core library
         .testTarget(
             name: "MiniDumpTruckTests",
-            dependencies: ["MiniDumpTruckCore"],
+            dependencies: ["MiniDumpTruckCore", "CZlib"],
             path: "Tests"
         )
     ]

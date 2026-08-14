@@ -1,5 +1,5 @@
 import Foundation
-import Compression
+import CZlib
 
 /// Compression methods we support reading from a ZIP archive.
 public enum CompressionMethod: UInt16, Sendable {
@@ -173,15 +173,35 @@ public struct ZipArchive: Sendable {
         }
     }
 
-    /// Inflate a raw deflate stream (no zlib header) using Compression.framework.
+    /// Inflate a raw deflate stream (no zlib header) using zlib.
     private static func inflate(_ compressed: Data, uncompressedSize: Int) throws -> Data {
         if uncompressedSize == 0 { return Data() }
         var dst = Data(count: uncompressedSize)
+        var stream = z_stream()
+        // Negative windowBits tells zlib the input is a bare deflate stream with no
+        // RFC-1950 header, which is what ZIP stores. A positive value would make
+        // every deflate entry fail.
+        let initStatus = inflateInit2_(&stream, -MAX_WBITS, ZLIB_VERSION,
+                                       Int32(MemoryLayout<z_stream>.size))
+        guard initStatus == Z_OK else {
+            throw ZipError.corrupted(reason: "DEFLATE stream could not be initialized")
+        }
+        defer { inflateEnd(&stream) }
+        // The output buffer is exactly the declared uncompressed size, so a stream
+        // that wants to produce more bytes than declared cannot overrun it.
         let produced = compressed.withUnsafeBytes { srcPtr -> Int in
             let src = srcPtr.bindMemory(to: UInt8.self).baseAddress!
             return dst.withUnsafeMutableBytes { dstPtr -> Int in
                 let dstP = dstPtr.bindMemory(to: UInt8.self).baseAddress!
-                return compression_decode_buffer(dstP, uncompressedSize, src, compressed.count, nil, COMPRESSION_ZLIB)
+                stream.next_in = UnsafeMutablePointer(mutating: src)
+                stream.avail_in = uInt(compressed.count)
+                stream.next_out = dstP
+                stream.avail_out = uInt(uncompressedSize)
+                // Anything short of Z_STREAM_END means the stream was truncated or
+                // wanted to produce more than it declared; report it as a size
+                // mismatch rather than returning a partially filled buffer.
+                guard CZlib.inflate(&stream, Z_FINISH) == Z_STREAM_END else { return -1 }
+                return uncompressedSize - Int(stream.avail_out)
             }
         }
         if produced != uncompressedSize {
