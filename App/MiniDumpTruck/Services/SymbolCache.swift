@@ -61,7 +61,7 @@ public actor SymbolCache {
             if nsErr.domain == NSCocoaErrorDomain && nsErr.code == NSFileReadNoSuchFileError {
                 SymbolLog.shared.trace("cache miss \(key.pdbName)")
             } else {
-                SymbolLog.shared.error("cache read failed for \(key.pdbName): \(error.localizedDescription)")
+                SymbolLog.shared.error("cache read failed for \(key.pdbName): \(ErrorSanitization.reason(for: error))")
             }
             return nil
         }

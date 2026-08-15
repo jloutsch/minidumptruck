@@ -98,7 +98,7 @@ public actor SymbolServer {
         do {
             (data, response) = try await urlSession.data(from: url)
         } catch {
-            SymbolLog.shared.error("network failure for \(key.pdbName): \(error.localizedDescription)")
+            SymbolLog.shared.error("network failure for \(key.pdbName): \(ErrorSanitization.reason(for: error))")
             throw FetchError.networkFailure(error as any Error & Sendable)
         }
 
