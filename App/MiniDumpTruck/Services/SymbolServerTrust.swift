@@ -3,7 +3,6 @@ import Foundation
 import FoundationNetworking
 #endif
 import Crypto
-import os
 
 /// TLS server-trust evaluation hooks for `SymbolServer`.
 ///
@@ -85,12 +84,12 @@ final class SymbolServerTrustDelegate: NSObject, URLSessionDelegate, @unchecked 
             guard !allowedHashes.isEmpty else {
                 // makeSession should have refused this configuration,
                 // but log defensively in case a caller bypasses it.
-                Logger.symbols.fault("TLS pinning misconfigured: empty allowedHashes — rejecting all certs")
+                SymbolLog.shared.fault("TLS pinning misconfigured: empty allowedHashes — rejecting all certs")
                 completionHandler(.cancelAuthenticationChallenge, nil)
                 return
             }
             guard SecTrustEvaluateWithError(serverTrust, nil) else {
-                Logger.symbols.error("TLS pinning: trust eval failed for \(challenge.protectionSpace.host, privacy: .public)")
+                SymbolLog.shared.error("TLS pinning: trust eval failed for \(challenge.protectionSpace.host)")
                 completionHandler(.cancelAuthenticationChallenge, nil)
                 return
             }
@@ -102,7 +101,7 @@ final class SymbolServerTrustDelegate: NSObject, URLSessionDelegate, @unchecked 
             if anyMatch {
                 completionHandler(.useCredential, URLCredential(trust: serverTrust))
             } else {
-                Logger.symbols.error("TLS pinning: no chain cert matched the allowed cert-SHA256 set for \(challenge.protectionSpace.host, privacy: .public)")
+                SymbolLog.shared.error("TLS pinning: no chain cert matched the allowed cert-SHA256 set for \(challenge.protectionSpace.host)")
                 completionHandler(.cancelAuthenticationChallenge, nil)
             }
         }

@@ -48,7 +48,8 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", exact: "1.7.0"),
-        .package(url: "https://github.com/apple/swift-crypto", exact: "4.5.1")
+        .package(url: "https://github.com/apple/swift-crypto", exact: "4.5.1"),
+        .package(url: "https://github.com/apple/swift-log", exact: "1.9.1")
     ],
     targets: [
         // System zlib, used for DEFLATE on every platform
@@ -58,7 +59,8 @@ let package = Package(
             name: "MiniDumpTruckCore",
             dependencies: [
                 "CZlib",
-                .product(name: "Crypto", package: "swift-crypto")
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "Logging", package: "swift-log")
             ],
             path: "MiniDumpTruck",
             exclude: [
@@ -89,7 +91,11 @@ let package = Package(
         // Test target for core library
         .testTarget(
             name: "MiniDumpTruckTests",
-            dependencies: ["MiniDumpTruckCore", "CZlib"],
+            dependencies: [
+                "MiniDumpTruckCore",
+                "CZlib",
+                .product(name: "Logging", package: "swift-log")
+            ],
             path: "Tests"
         )
     ]

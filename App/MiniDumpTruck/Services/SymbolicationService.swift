@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 /// Orchestrates "fetch PDBs for every module in a parsed dump, parse
 /// them, and hand back a `[baseAddress: PDBSymbolTable]` map" — the
@@ -54,7 +53,7 @@ public actor SymbolicationService {
         let modules = dump.moduleList?.modules ?? []
         var result: [UInt64: PDBSymbolTable] = [:]
 
-        Logger.symbols.info("symbolicating \(modules.count) modules")
+        SymbolLog.shared.info("symbolicating \(modules.count) modules")
 
         // Fetch concurrently up to `maxConcurrent`. Microsoft's symbol
         // server is fast and tolerant of parallel requests, but a
@@ -84,7 +83,7 @@ public actor SymbolicationService {
             }
         }
 
-        Logger.symbols.info("symbolication complete: \(result.count) of \(modules.count) modules resolved (stats: attempted=\(self.counters.attempted) cacheHits=\(self.counters.cacheHits) serverFetches=\(self.counters.serverFetches) failures=\(self.counters.failures) evicted=\(self.counters.corruptionEvictions))")
+        SymbolLog.shared.info("symbolication complete: \(result.count) of \(modules.count) modules resolved (stats: attempted=\(self.counters.attempted) cacheHits=\(self.counters.cacheHits) serverFetches=\(self.counters.serverFetches) failures=\(self.counters.failures) evicted=\(self.counters.corruptionEvictions))")
         return result
     }
 
@@ -118,7 +117,7 @@ public actor SymbolicationService {
                     return (baseAddress, PDBSymbolTable(symbols: symbols))
                 }
                 // Cached bytes failed to parse — corruption recovery.
-                Logger.symbols.notice("cached PDB for \(key.pdbName, privacy: .public) failed to parse; evicting and re-fetching")
+                SymbolLog.shared.notice("cached PDB for \(key.pdbName) failed to parse; evicting and re-fetching")
                 await cache.evict(key)
                 await self.record(.eviction)
             }
@@ -133,7 +132,7 @@ public actor SymbolicationService {
                 }
                 // Fresh bytes also failed to parse — server-side
                 // problem. Log + drop, don't loop.
-                Logger.symbols.error("freshly-fetched PDB for \(key.pdbName, privacy: .public) failed to parse")
+                SymbolLog.shared.error("freshly-fetched PDB for \(key.pdbName) failed to parse")
                 await self.record(.failure)
                 return (baseAddress, nil)
             } catch {
