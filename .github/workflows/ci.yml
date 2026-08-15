@@ -68,15 +68,31 @@ jobs:
 
   build-test-linux:
     name: swift build + swift test (Linux)
-    # DELIBERATELY NON-BLOCKING. The Linux port's source-level work has
-    # landed, but nothing here has ever been compiled on Linux, so we do
-    # not yet know whether this job passes. Making it required today
-    # would turn an unknown into a red PR and bury the logs that tell us
-    # what actually broke. Its job is to report, not to gate.
+    # DELIBERATELY NON-BLOCKING, AND IT REPORTS SUCCESS BY CONSTRUCTION.
+    # A GREEN CHECK HERE DOES NOT MEAN LINUX BUILDS.
     #
-    # Follow-up condition: once this job has passed at least once, delete
-    # this comment and `continue-on-error` so it becomes a required
-    # check. Do not "tidy" the flag away before then.
+    # The Linux port's source-level work has landed, but nothing here has
+    # ever been compiled on Linux, so this job exists to print what
+    # breaks, not to gate anything. The Build and Test steps below
+    # swallow their own exit status and raise a `::warning::` annotation
+    # instead, which keeps the job's check-run conclusion at `success`.
+    #
+    # That step-level tolerance is the load-bearing part, not the
+    # `continue-on-error` below it: a job-level `continue-on-error` stops
+    # the workflow from failing but still reports the check run itself as
+    # `failure`, so any merge gate that requires green checks blocks on
+    # it. The job would then be advisory in name and blocking in
+    # practice. Both mechanisms are kept; only the step-level one
+    # actually produces the green check.
+    #
+    # To learn whether Linux is healthy, read the step logs and the run's
+    # warning annotations. Never read the check's colour.
+    #
+    # Follow-up condition: once Linux compiles and tests cleanly, delete
+    # this comment, the failure tolerance in the Build and Test steps,
+    # and `continue-on-error`, so this becomes a real required check.
+    # Removing `continue-on-error` on its own is not enough, and neither
+    # is "tidying" either one away before then.
     continue-on-error: true
 
     runs-on: ubuntu-latest
@@ -107,11 +123,26 @@ jobs:
         # tests only. If it tries to build the GUI target here, that is a
         # real finding about the manifest — report it rather than adding
         # a target filter.
-        run: swift build
+        #
+        # The exit status is swallowed on purpose (see the job comment).
+        # The compiler output is the whole deliverable, so it is printed
+        # in full — never redirected, quietened, or truncated.
+        run: |
+          if ! swift build; then
+            echo "::warning::Linux BUILD FAILED — full compiler output is in this step's log. This job reports success by construction, so a green Linux check does not mean Linux builds."
+          fi
 
       - name: Test
         working-directory: App
         # No retry wrapper: the macOS retry exists for a specific arm64e
         # toolchain flake. A Linux failure is information we want to see
         # on the first attempt, not something to retry past.
-        run: swift test
+        #
+        # This runs even when Build failed, because `swift test` also
+        # compiles the test target and can surface breakage the library
+        # build never reaches. Until the build is fixed, expect this log
+        # to repeat the Build step's errors.
+        run: |
+          if ! swift test; then
+            echo "::warning::Linux TESTS FAILED (or did not compile) — full output is in this step's log. This job reports success by construction, so a green Linux check does not mean Linux tests pass."
+          fi
