@@ -65,3 +65,53 @@ jobs:
             echo "::warning::First swift test attempt failed — retrying once. If this annotation appears repeatedly, escalate per issue #67 (consider --num-workers 1)."
             swift test
           fi
+
+  build-test-linux:
+    name: swift build + swift test (Linux)
+    # DELIBERATELY NON-BLOCKING. The Linux port's source-level work has
+    # landed, but nothing here has ever been compiled on Linux, so we do
+    # not yet know whether this job passes. Making it required today
+    # would turn an unknown into a red PR and bury the logs that tell us
+    # what actually broke. Its job is to report, not to gate.
+    #
+    # Follow-up condition: once this job has passed at least once, delete
+    # this comment and `continue-on-error` so it becomes a required
+    # check. Do not "tidy" the flag away before then.
+    continue-on-error: true
+
+    runs-on: ubuntu-latest
+    # The official Swift image rather than a marketplace setup action:
+    # GitHub's Ubuntu runners ship no Swift toolchain, and an action
+    # would add a third-party supply-chain dependency to pin and track.
+    # Noble is the current Ubuntu LTS. Swift 6.1 matches the macOS job's
+    # toolchain series so a failure here is attributable to the platform
+    # rather than to a compiler-version difference. Pinned tag, never
+    # `latest`, for the same reason the checkout action is SHA-pinned.
+    container: swift:6.1-noble
+
+    steps:
+      - name: Checkout
+        # Same pin as the macOS job — bump both together.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Show toolchain
+        # No xcodebuild off-Apple. This line is the record of which Swift
+        # the image actually shipped, which is what the next round of
+        # Linux work targets.
+        run: swift --version
+
+      - name: Build
+        working-directory: App
+        # Package.swift drops the SwiftUI app target on platforms without
+        # SwiftUI, so this builds the core library, the CLI, and the
+        # tests only. If it tries to build the GUI target here, that is a
+        # real finding about the manifest — report it rather than adding
+        # a target filter.
+        run: swift build
+
+      - name: Test
+        working-directory: App
+        # No retry wrapper: the macOS retry exists for a specific arm64e
+        # toolchain flake. A Linux failure is information we want to see
+        # on the first attempt, not something to retry past.
+        run: swift test
