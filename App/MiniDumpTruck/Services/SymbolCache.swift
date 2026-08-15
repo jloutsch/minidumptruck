@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 /// On-disk cache for PDBs downloaded from a Microsoft symbol server.
 ///
@@ -52,7 +51,7 @@ public actor SymbolCache {
     public func data(for key: PDBIdentity) -> Data? {
         do {
             let data = try Data(contentsOf: url(for: key))
-            Logger.symbols.debug("cache hit \(key.pdbName, privacy: .public) (\(data.count) bytes)")
+            SymbolLog.shared.debug("cache hit \(key.pdbName) (\(data.count) bytes)")
             return data
         } catch {
             // CocoaError.fileReadNoSuchFile is the common case (cache
@@ -60,9 +59,9 @@ public actor SymbolCache {
             // (permission denied, IO failure) are notable.
             let nsErr = error as NSError
             if nsErr.domain == NSCocoaErrorDomain && nsErr.code == NSFileReadNoSuchFileError {
-                Logger.symbols.trace("cache miss \(key.pdbName, privacy: .public)")
+                SymbolLog.shared.trace("cache miss \(key.pdbName)")
             } else {
-                Logger.symbols.error("cache read failed for \(key.pdbName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                SymbolLog.shared.error("cache read failed for \(key.pdbName): \(error.localizedDescription)")
             }
             return nil
         }
@@ -79,7 +78,7 @@ public actor SymbolCache {
         try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
         // Atomic option writes to a temp file and renames into place.
         try data.write(to: final, options: .atomic)
-        Logger.symbols.info("cache store \(key.pdbName, privacy: .public) (\(data.count) bytes)")
+        SymbolLog.shared.info("cache store \(key.pdbName) (\(data.count) bytes)")
         return final
     }
 
@@ -96,7 +95,7 @@ public actor SymbolCache {
            contents.isEmpty {
             try? fileManager.removeItem(at: parent)
         }
-        Logger.symbols.info("cache evict \(key.pdbName, privacy: .public)")
+        SymbolLog.shared.info("cache evict \(key.pdbName)")
     }
 
     /// Delete all cached PDBs. Used by a "Clear Symbol Cache" settings

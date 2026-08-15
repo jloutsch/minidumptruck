@@ -2,7 +2,6 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
-import os
 
 /// Fetches PDBs from a Microsoft symbol server (default: msdl.microsoft.com).
 ///
@@ -89,33 +88,33 @@ public actor SymbolServer {
     /// errors.
     public func fetch(_ key: PDBIdentity) async throws -> Data {
         guard isEnabled else {
-            Logger.symbols.info("server disabled, skipping fetch \(key.pdbName, privacy: .public)")
+            SymbolLog.shared.info("server disabled, skipping fetch \(key.pdbName)")
             throw FetchError.offline
         }
         guard let url = url(for: key) else { throw FetchError.malformedURL }
 
-        Logger.symbols.info("fetching \(key.pdbName, privacy: .public) from \(url.host ?? "?", privacy: .public)")
+        SymbolLog.shared.info("fetching \(key.pdbName) from \(url.host ?? "?")")
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await urlSession.data(from: url)
         } catch {
-            Logger.symbols.error("network failure for \(key.pdbName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            SymbolLog.shared.error("network failure for \(key.pdbName): \(error.localizedDescription)")
             throw FetchError.networkFailure(error as any Error & Sendable)
         }
 
         guard let http = response as? HTTPURLResponse else {
-            Logger.symbols.error("non-HTTP response for \(key.pdbName, privacy: .public)")
+            SymbolLog.shared.error("non-HTTP response for \(key.pdbName)")
             throw FetchError.httpError(0)
         }
         switch http.statusCode {
         case 200:
-            Logger.symbols.info("fetched \(key.pdbName, privacy: .public) (\(data.count) bytes)")
+            SymbolLog.shared.info("fetched \(key.pdbName) (\(data.count) bytes)")
             return data
         case 404:
-            Logger.symbols.notice("MSDL 404 for \(key.pdbName, privacy: .public) — PDB not available on this server")
+            SymbolLog.shared.notice("MSDL 404 for \(key.pdbName) — PDB not available on this server")
             throw FetchError.notFound
         default:
-            Logger.symbols.error("HTTP \(http.statusCode) for \(key.pdbName, privacy: .public)")
+            SymbolLog.shared.error("HTTP \(http.statusCode) for \(key.pdbName)")
             throw FetchError.httpError(http.statusCode)
         }
     }
