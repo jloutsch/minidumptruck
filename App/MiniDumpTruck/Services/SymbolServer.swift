@@ -55,7 +55,12 @@ public actor SymbolServer {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 15
         config.timeoutIntervalForResource = 30
-        config.waitsForConnectivity = false
+        // Deliberately no waits-for-connectivity assignment here: fail-fast
+        // (not waiting) is already the Darwin default, and on Linux the
+        // property is get-only in swift-corelibs-foundation, so assigning it
+        // does not compile there. The timeouts above govern slow-network
+        // behavior; the fail-fast contract is asserted by
+        // `sessionHasConfiguredTimeouts`.
         if case .systemTrust = trustPolicy {
             // No delegate needed — saves a SessionDelegate instance.
             return URLSession(configuration: config)
