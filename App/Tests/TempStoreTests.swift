@@ -19,19 +19,39 @@ struct TempStoreTests {
     }
 
     @Test func cleanupAgedRemovesOldDirsKeepsFreshOnes() async throws {
-        let fresh = try TempStore.makeDir(sourceName: "fresh.zip")
-        let stale = try TempStore.makeDir(sourceName: "stale.zip")
-        defer {
-            try? FileManager.default.removeItem(at: fresh)
-            try? FileManager.default.removeItem(at: stale)
-        }
-        // Backdate the stale dir's creationDate by 1 week. `.creationDate`
-        // is settable via setAttributes on Apple platforms.
-        let oneWeekAgo = Date().addingTimeInterval(-7 * 24 * 3600)
-        try FileManager.default.setAttributes([.creationDate: oneWeekAgo],
-                                              ofItemAtPath: stale.path)
+        // Staleness comes from the injectable clock, not from rewriting the
+        // directory's creationDate: `setAttributes([.creationDate:])` is
+        // honoured on Darwin but silently ignored by
+        // swift-corelibs-foundation, which made the old fixture a no-op off
+        // Apple platforms.
+        let realNow = TempStore.now
+        defer { TempStore.now = realNow }
 
-        await TempStore.cleanupAged(olderThan: 24 * 3600)
+        let stale = try TempStore.makeDir(sourceName: "stale.zip")
+        defer { try? FileManager.default.removeItem(at: stale) }
+        // Space the two creations apart by more than the kernel's coarse
+        // inode-timestamp granularity so their creation dates are distinct
+        // and a cutoff can land between them.
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let fresh = try TempStore.makeDir(sourceName: "fresh.zip")
+        defer { try? FileManager.default.removeItem(at: fresh) }
+
+        let staleCtime = try #require(
+            try stale.resourceValues(forKeys: [.creationDateKey]).creationDate)
+        let freshCtime = try #require(
+            try fresh.resourceValues(forKeys: [.creationDateKey]).creationDate)
+        try #require(staleCtime < freshCtime,
+                     "filesystem must report distinct creation dates 50ms apart")
+
+        // Freeze the clock so cleanupAged computes cutoff = frozen -
+        // retention = midway between the two creations: stale falls before
+        // the cutoff, fresh after it.
+        let retention: TimeInterval = 24 * 3600
+        let midpoint = staleCtime.addingTimeInterval(
+            freshCtime.timeIntervalSince(staleCtime) / 2)
+        TempStore.now = { midpoint.addingTimeInterval(retention) }
+
+        await TempStore.cleanupAged(olderThan: retention)
 
         #expect(FileManager.default.fileExists(atPath: fresh.path))
         #expect(!FileManager.default.fileExists(atPath: stale.path))
