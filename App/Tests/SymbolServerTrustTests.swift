@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Testing
 @testable import MiniDumpTruckCore
 
@@ -37,7 +40,13 @@ struct SymbolServerTrustTests {
         let session = SymbolServer.makeSession(trustPolicy: .systemTrust)
         #expect(session.configuration.timeoutIntervalForRequest == 15)
         #expect(session.configuration.timeoutIntervalForResource == 30)
+        // Darwin-only: `waitsForConnectivity` is unavailable for reads as
+        // well as writes off Darwin, so on other platforms this assertion
+        // cannot be compiled at all. The two timeout assertions above stay
+        // cross-platform, so the test still verifies what it can there.
+        #if canImport(Darwin)
         #expect(session.configuration.waitsForConnectivity == false)
+        #endif
     }
 
     @Test func emptyAllowedHashesIsVacuous() {
