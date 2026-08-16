@@ -65,3 +65,84 @@ jobs:
             echo "::warning::First swift test attempt failed — retrying once. If this annotation appears repeatedly, escalate per issue #67 (consider --num-workers 1)."
             swift test
           fi
+
+  build-test-linux:
+    name: swift build + swift test (Linux)
+    # DELIBERATELY NON-BLOCKING, AND IT REPORTS SUCCESS BY CONSTRUCTION.
+    # A GREEN CHECK HERE DOES NOT MEAN LINUX BUILDS.
+    #
+    # The Linux port's source-level work has landed, but nothing here has
+    # ever been compiled on Linux, so this job exists to print what
+    # breaks, not to gate anything. The Build and Test steps below
+    # swallow their own exit status and raise a `::warning::` annotation
+    # instead, which keeps the job's check-run conclusion at `success`.
+    #
+    # That step-level tolerance is the load-bearing part, not the
+    # `continue-on-error` below it: a job-level `continue-on-error` stops
+    # the workflow from failing but still reports the check run itself as
+    # `failure`, so any merge gate that requires green checks blocks on
+    # it. The job would then be advisory in name and blocking in
+    # practice. Both mechanisms are kept; only the step-level one
+    # actually produces the green check.
+    #
+    # To learn whether Linux is healthy, read the step logs and the run's
+    # warning annotations. Never read the check's colour.
+    #
+    # Follow-up condition: once Linux compiles and tests cleanly, delete
+    # this comment, the failure tolerance in the Build and Test steps,
+    # and `continue-on-error`, so this becomes a real required check.
+    # Removing `continue-on-error` on its own is not enough, and neither
+    # is "tidying" either one away before then.
+    continue-on-error: true
+
+    runs-on: ubuntu-latest
+    # The official Swift image rather than a marketplace setup action:
+    # GitHub's Ubuntu runners ship no Swift toolchain, and an action
+    # would add a third-party supply-chain dependency to pin and track.
+    # Noble is the current Ubuntu LTS. Swift 6.1 matches the macOS job's
+    # toolchain series so a failure here is attributable to the platform
+    # rather than to a compiler-version difference. Pinned tag, never
+    # `latest`, for the same reason the checkout action is SHA-pinned.
+    container: swift:6.1-noble
+
+    steps:
+      - name: Checkout
+        # Same pin as the macOS job — bump both together.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Show toolchain
+        # No xcodebuild off-Apple. This line is the record of which Swift
+        # the image actually shipped, which is what the next round of
+        # Linux work targets.
+        run: swift --version
+
+      - name: Build
+        working-directory: App
+        # Package.swift drops the SwiftUI app target on platforms without
+        # SwiftUI, so this builds the core library, the CLI, and the
+        # tests only. If it tries to build the GUI target here, that is a
+        # real finding about the manifest — report it rather than adding
+        # a target filter.
+        #
+        # The exit status is swallowed on purpose (see the job comment).
+        # The compiler output is the whole deliverable, so it is printed
+        # in full — never redirected, quietened, or truncated.
+        run: |
+          if ! swift build; then
+            echo "::warning::Linux BUILD FAILED — full compiler output is in this step's log. This job reports success by construction, so a green Linux check does not mean Linux builds."
+          fi
+
+      - name: Test
+        working-directory: App
+        # No retry wrapper: the macOS retry exists for a specific arm64e
+        # toolchain flake. A Linux failure is information we want to see
+        # on the first attempt, not something to retry past.
+        #
+        # This runs even when Build failed, because `swift test` also
+        # compiles the test target and can surface breakage the library
+        # build never reaches. Until the build is fixed, expect this log
+        # to repeat the Build step's errors.
+        run: |
+          if ! swift test; then
+            echo "::warning::Linux TESTS FAILED (or did not compile) — full output is in this step's log. This job reports success by construction, so a green Linux check does not mean Linux tests pass."
+          fi
