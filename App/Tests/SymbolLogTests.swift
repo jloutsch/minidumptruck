@@ -246,9 +246,13 @@ struct SymbolLogTests {
 
         // Make the read fail with something other than "no such file",
         // which the call site deliberately logs at trace level instead.
+        // A directory standing in for the file fails for every user,
+        // root included — permission bits would not, since root ignores
+        // them and the read would succeed.
         let fileURL = cache.url(for: key)
-        try FileManager.default.setAttributes([.posixPermissions: 0o000],
-                                              ofItemAtPath: fileURL.path)
+        try FileManager.default.removeItem(at: fileURL)
+        try FileManager.default.createDirectory(at: fileURL,
+                                                withIntermediateDirectories: false)
 
         // What the call site used to log. Recomputed, not assumed.
         var rawDescription = ""
@@ -258,9 +262,9 @@ struct SymbolLogTests {
             rawDescription = error.localizedDescription
         }
         // Fails loudly (rather than passing vacuously) if the read
-        // unexpectedly succeeded — e.g. running as root.
+        // unexpectedly succeeded and left nothing to compare against.
         try #require(!rawDescription.isEmpty)
-        try #require(rawDescription != "permission denied")
+        try #require(rawDescription != "file unreadable or corrupt")
 
         let capture = CapturingBackend()
         let previous = SymbolLog.shared
@@ -275,7 +279,7 @@ struct SymbolLogTests {
         let line = try #require(entries.first?.message)
 
         #expect(entries.first?.level == "error")
-        #expect(line == "cache read failed for \(key.pdbName): permission denied")
+        #expect(line == "cache read failed for \(key.pdbName): file unreadable or corrupt")
         #expect(!line.contains(rawDescription))
         #expect(!line.contains(root.path))
         #expect(!line.contains(root.lastPathComponent))
