@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-import Security
 @testable import MiniDumpTruckCore
 
 @Suite("SymbolServer TLS trust policy")
@@ -12,6 +11,12 @@ struct SymbolServerTrustTests {
                 ".systemTrust must not allocate a SymbolServerTrustDelegate")
     }
 
+    // Darwin-only: without the Security framework `makeSession`
+    // refuses a pinning policy outright (a `preconditionFailure`, which
+    // would abort the whole test executable rather than fail one test),
+    // so there is no session to inspect on those platforms. Do not
+    // restore this test unconditionally.
+    #if canImport(Security)
     @Test func pinCertificateSessionHasDelegate() {
         let session = SymbolServer.makeSession(
             trustPolicy: .pinCertificateSHA256(allowedHashes: [Data(repeating: 0xAB, count: 32)])
@@ -26,6 +31,7 @@ struct SymbolServerTrustTests {
             Issue.record("delegate's policy lost the pinCertificateSHA256 associated value")
         }
     }
+    #endif
 
     @Test func sessionHasConfiguredTimeouts() {
         let session = SymbolServer.makeSession(trustPolicy: .systemTrust)

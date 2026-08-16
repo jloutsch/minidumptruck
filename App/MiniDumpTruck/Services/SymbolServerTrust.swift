@@ -27,6 +27,17 @@ import Crypto
 ///    assurance but breaks if Microsoft rotates the certificate. We
 ///    don't ship known hashes — the user / admin populates them.
 ///
+/// Platform availability: mode 2 requires the Security framework to
+/// intercept and evaluate TLS server-trust challenges. On platforms
+/// without it (Linux, where swift-corelibs-foundation does not support
+/// authentication methods that rely on Darwin's Security framework),
+/// pinning cannot be enforced, so `makeSession` refuses a
+/// `.pinCertificateSHA256` policy outright rather than quietly falling
+/// back to OS trust-store validation. Callers on those platforms must
+/// select mode 1 deliberately. The case itself stays available
+/// everywhere so the refusal is an explicit, documented failure at
+/// session construction instead of a missing-member compile error.
+///
 /// Notes on a previously-considered `.pinAppleManaged` mode:
 /// Apple's public Security framework offers no clean API to
 /// distinguish OS-shipped anchors from MDM/user-installed anchors.
@@ -67,6 +78,14 @@ final class SymbolServerTrustDelegate: NSObject, URLSessionDelegate, @unchecked 
         super.init()
     }
 
+    // The challenge handler and the certificate-hashing helper below
+    // depend on the Security framework (SecTrust*, SecCertificate*,
+    // NSURLAuthenticationMethodServerTrust, URLCredential(trust:)),
+    // none of which swift-corelibs-foundation provides. Where the
+    // framework is absent, `makeSession` refuses a pinning policy at
+    // construction — see the platform-availability note on
+    // `SymbolServerTrustPolicy`.
+    #if canImport(Security)
     func urlSession(_ session: URLSession,
                     didReceive challenge: URLAuthenticationChallenge,
                     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
@@ -114,6 +133,7 @@ final class SymbolServerTrustDelegate: NSObject, URLSessionDelegate, @unchecked 
         let der = SecCertificateCopyData(cert) as Data
         return der.isEmpty ? nil : sha256(der)
     }
+    #endif
 
     /// SHA-256 of arbitrary bytes. Split out from `certificateSHA256`
     /// so tests can pin the hashing logic against known inputs
