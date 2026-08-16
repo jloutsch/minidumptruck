@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-import Security
 @testable import MiniDumpTruckCore
 
 @Suite("SymbolServer TLS trust policy")

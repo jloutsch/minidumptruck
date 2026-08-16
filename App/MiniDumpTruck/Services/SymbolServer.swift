@@ -65,8 +65,20 @@ public actor SymbolServer {
             // No delegate needed — saves a SessionDelegate instance.
             return URLSession(configuration: config)
         }
+        #if canImport(Security)
         let delegate = SymbolServerTrustDelegate(policy: trustPolicy)
         return URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+        #else
+        preconditionFailure("""
+            SymbolServerTrustPolicy.pinCertificateSHA256 is not supported on this \
+            platform: without the Security framework, TLS server-trust challenges \
+            cannot be intercepted, so certificate pinning cannot be enforced and \
+            would silently degrade to OS trust-store validation. Pass .systemTrust \
+            explicitly to accept that validation, or run on a platform with the \
+            Security framework to pin. See the platform-availability note on \
+            SymbolServerTrustPolicy.
+            """)
+        #endif
     }
 
     public init(baseURL: URL = SymbolServer.microsoftPublicURL,
