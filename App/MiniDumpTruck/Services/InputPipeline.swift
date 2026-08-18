@@ -102,7 +102,7 @@ public enum InputPipeline {
         do {
             zipData = try Data(contentsOf: url, options: .mappedIfSafe)
         } catch {
-            return .failed(.zipParseFailed(.corrupted(reason: error.localizedDescription)))
+            return .failed(.zipParseFailed(.corrupted(reason: ErrorSanitization.reason(for: error))))
         }
         let archive: ZipArchive
         do {
@@ -110,7 +110,7 @@ public enum InputPipeline {
         } catch let z as ZipError {
             return .failed(.zipParseFailed(z))
         } catch {
-            return .failed(.zipParseFailed(.corrupted(reason: error.localizedDescription)))
+            return .failed(.zipParseFailed(.corrupted(reason: ErrorSanitization.reason(for: error))))
         }
         let dumps = archive.entries.filter { entry in
             let lower = entry.name.lowercased()

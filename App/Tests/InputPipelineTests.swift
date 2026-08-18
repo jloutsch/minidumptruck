@@ -25,6 +25,55 @@ struct InputPipelineIngestTests {
         }
     }
 
+    @Test func missingFileFailureDoesNotLeakAbsolutePath() async throws {
+        // End-to-end: a real unreadable file drives the pipeline's failure
+        // path, and the resulting alert text must not carry the path.
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("Secret Folder-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("crash.dmp")
+
+        // Keeps the negative assertions below non-vacuous: prove the sink the
+        // pipeline routes through strips a description that really does carry
+        // the filename and the absolute path. The error is constructed rather
+        // than provoked because Foundation renders file-error descriptions
+        // differently per platform — macOS embeds the quoted filename, Linux
+        // renders only "The file doesn't exist." What is under test is our
+        // sanitizer, not Foundation's wording.
+        let leaky = NSError(
+            domain: NSCocoaErrorDomain,
+            code: NSFileReadNoSuchFileError,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "The file “crash.dmp” couldn't be opened because there is no such file. Path: \(url.path)",
+                NSFilePathErrorKey: url.path
+            ]
+        )
+        #expect(leaky.localizedDescription.contains("crash.dmp"),
+                "precondition: the raw description must embed the filename")
+        #expect(leaky.localizedDescription.contains(url.path),
+                "precondition: the raw description must embed the absolute path")
+        let wrapped = try #require(OpenError.corruptedMinidump(underlying: leaky).errorDescription)
+        #expect(wrapped.contains("file not found"))
+        #expect(!wrapped.contains(url.path))
+        #expect(!wrapped.contains("crash.dmp"))
+        #expect(!wrapped.contains("Secret Folder"))
+
+        // End-to-end, the real failure reaches that same sink.
+        let outcome = await InputPipeline.ingest(url: url)
+        guard case .failed(let openError) = outcome else {
+            Issue.record("expected .failed, got \(outcome)")
+            return
+        }
+        let msg = try #require(openError.errorDescription)
+        #expect(msg.contains("file not found"))
+        #expect(!msg.contains(url.path))
+        #expect(!msg.contains("crash.dmp"))
+        #expect(!msg.contains("Secret Folder"))
+        #expect(!msg.contains(NSTemporaryDirectory()))
+    }
+
     @Test func textFileFailsAsNotAMinidump() async throws {
         let url = try writeTempFile(name: "text", body: Data("hello".utf8))
         defer { try? FileManager.default.removeItem(at: url) }

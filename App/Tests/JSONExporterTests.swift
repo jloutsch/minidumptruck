@@ -231,9 +231,51 @@ struct JSONExporterTests {
 
         // Must round-trip through JSONSerialization — proves it's valid.
         let parsed = try JSONSerialization.jsonObject(with: Data(json.utf8)) as! [String: Any]
+        #expect(parsed["error"] != nil)
+    }
+
+    @Test func errorFallbackEscapesAdversarialParserText() throws {
+        // Keeps the JSON-escaping guarantee non-vacuous: `MinidumpParseError`
+        // is the one branch whose text still reaches the output verbatim, so
+        // the round-trip must be exercised through it.
+        let nasty = #"broke at "path\to\file" with \"quotes\""#
+        let json = JSONExporter.encodeErrorFallback(MinidumpParseError.parseError(nasty))
+
+        let parsed = try JSONSerialization.jsonObject(with: Data(json.utf8)) as! [String: Any]
         let message = try #require(parsed["error"] as? String)
-        #expect(message.contains("path"))
-        #expect(message.contains("file"))
+        // The adversarial text really did reach the output — otherwise the
+        // round-trip above would prove nothing.
+        #expect(message.contains(#"""#))
+        #expect(message.contains(#"\"#))
+        #expect(message.contains("broke at"))
+    }
+
+    @Test func errorFallbackDoesNotLeakPathFromFileError() throws {
+        // Description supplied rather than derived: Foundation words file
+        // errors differently per platform (macOS quotes the filename, Linux
+        // omits it), and the subject of this test is our sanitizer.
+        let path = "/Users/someone/Secret Folder/report.json"
+        let underlying = NSError(
+            domain: NSCocoaErrorDomain,
+            code: NSFileWriteNoPermissionError,
+            userInfo: [NSLocalizedDescriptionKey:
+                        "You don't have permission to save the file “report.json”. Path: \(path)",
+                       NSFilePathErrorKey: path,
+                       NSURLErrorKey: URL(fileURLWithPath: path)]
+        )
+        #expect(underlying.localizedDescription.contains("report.json"),
+                "precondition: the raw description must embed the filename")
+        #expect(underlying.localizedDescription.contains(path),
+                "precondition: the raw description must embed the absolute path")
+
+        let json = JSONExporter.encodeErrorFallback(underlying)
+        let parsed = try JSONSerialization.jsonObject(with: Data(json.utf8)) as! [String: Any]
+        let message = try #require(parsed["error"] as? String)
+        #expect(message.contains("permission denied"))
+        #expect(!message.contains(path))
+        #expect(!message.contains("report.json"))
+        #expect(!message.contains("Secret Folder"))
+        #expect(!message.contains("/Users/"))
     }
 
     @Test func errorFallbackHandlesControlChars() throws {
