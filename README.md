@@ -58,6 +58,18 @@ The DMG is ad-hoc signed (not notarized — yet). On first launch macOS Gatekeep
 
 Apple Silicon only at the moment. Intel users should build from source.
 
+### Pre-built CLI
+
+The command-line tool ships as its own asset, `minidumptruck-cli-<version>-macos-arm64.tar.gz` on macOS and `minidumptruck-cli-<version>-linux-x86_64.tar.gz` on Linux. See [CLI.md](CLI.md) for verification and first-run steps, which differ by platform.
+
+### Verifying a download
+
+Every release asset has a `.sha256` file beside it:
+
+```bash
+shasum -a 256 -c MiniDumpTruck-<version>-arm64.dmg.sha256   # sha256sum -c on Linux
+```
+
 ### Build from source
 
 Requirements: macOS 14 (Sonoma) or later, Swift 5.9+.
@@ -164,6 +176,7 @@ minidumptruck-cli help
 
 - macOS 14.0 (Sonoma) or later
 - Pre-built DMG: Apple Silicon (arm64)
+- Pre-built CLI: Apple Silicon (arm64) on macOS, x86_64 on Linux
 - Build from source: Apple Silicon or Intel
 
 ## Technical details
