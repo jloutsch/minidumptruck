@@ -63,7 +63,10 @@ struct OpenErrorTests {
 
     @Test func zipExtractFailedIncludesEntryName() throws {
         // The entry name is caller-supplied, not error-derived, so it still
-        // appears. The underlying description no longer does.
+        // appears. An error of an *unknown* type collapses to a domain/code
+        // marker — its description could embed anything. (`ZipError`, the
+        // type actually thrown on this path, is exempt; see the two tests
+        // below.)
         struct Boom: LocalizedError {
             var errorDescription: String? { "disk full" }
         }
@@ -71,6 +74,41 @@ struct OpenErrorTests {
         let msg = try #require(err.errorDescription)
         #expect(msg.contains("crash.dmp"))
         #expect(!msg.contains("disk full"))
+    }
+
+    @Test func zipExtractFailedKeepsZipErrorGuidance() throws {
+        // `ZipArchive.extract` throws `ZipError` and nothing else, so this is
+        // the dominant path. The guidance is the entire value of the message;
+        // a bare type-name marker would leave the user nothing to act on.
+        let err = OpenError.zipExtractFailed(entry: "crash.dmp", underlying: ZipError.encrypted)
+        let msg = try #require(err.errorDescription)
+        #expect(msg.contains("crash.dmp"))
+        #expect(msg.contains("Extract it with the password first"))
+        // The invariant OpenError documents: no raw Swift type names.
+        #expect(!msg.contains("ZipError"))
+        #expect(!msg.contains("MiniDumpTruckCore"))
+    }
+
+    @Test func zipExtractFailedKeepsZipCorruptionReason() throws {
+        let err = OpenError.zipExtractFailed(
+            entry: "crash.dmp",
+            underlying: ZipError.corrupted(reason: "DEFLATE stream could not be initialized")
+        )
+        let msg = try #require(err.errorDescription)
+        #expect(msg.contains("DEFLATE stream could not be initialized"))
+        #expect(!msg.contains("ZipError"))
+    }
+
+    @Test func zipExtractFailedBoundsZipErrorReason() throws {
+        // `corrupted(reason:)` is the one `ZipError` case carrying a free-form
+        // String, so it is the one that needs a length bound.
+        let err = OpenError.zipExtractFailed(
+            entry: "crash.dmp",
+            underlying: ZipError.corrupted(reason: String(repeating: "X", count: 10_000))
+        )
+        let msg = try #require(err.errorDescription)
+        #expect(msg.count < 600)
+        #expect(msg.contains("…"))
     }
 
     @Test func zipExtractFailedDoesNotLeakPathFromFileError() throws {

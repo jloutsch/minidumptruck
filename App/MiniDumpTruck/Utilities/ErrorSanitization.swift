@@ -45,6 +45,16 @@ public enum ErrorSanitization {
             return (parseError.errorDescription ?? "parse failed").sanitizedForOutput()
         }
 
+        // ZipError descriptions are app-authored constants interpolating
+        // only integers and fixed strings — no paths, filenames, or dump
+        // bytes — and they carry the only actionable guidance the user
+        // gets ("extract it with the password first"). Collapsing them to
+        // a domain marker would buy no disclosure protection and lose all
+        // of that, so keep the text and bound it like the parser case.
+        if let zipError = error as? ZipError {
+            return (zipError.errorDescription ?? "zip error").sanitizedForOutput()
+        }
+
         let ns = error as NSError
 
         if ns.domain == NSCocoaErrorDomain {
