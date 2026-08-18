@@ -129,3 +129,78 @@ jobs:
         # target depends on the library, so a Core compile error would
         # only resurface here as a confusing test-discovery failure.
         run: swift test
+
+      - name: CLI smoke test
+        working-directory: App
+        # Build and Test above prove the code compiles and the library
+        # behaves. Neither one ever runs the shipped binary, which is the
+        # only thing a Linux user installs. This step runs it, and fails
+        # the job when it misbehaves: a Linux CLI regression should block
+        # merge for the same reason a failing test does.
+        #
+        # What it asserts is deliberate. `info` must report the fixture's
+        # stream count, and `analyze` must exit 2 — the documented
+        # crash-detected code for a dump containing an access violation.
+        # Asserting a bare exit 0 instead would pass on a binary that
+        # started up and parsed nothing. The stream count is a property of
+        # test.dmp rather than of output formatting, so it does not move
+        # when the report layout changes; the timestamp line, by contrast,
+        # renders per-locale and would be a brittle marker.
+        #
+        # Exit statuses are captured directly from the binary, never read
+        # through a pipe. `minidumptruck-cli … | grep` reports grep's
+        # status, not the binary's, and that mistake has produced false
+        # passes in this repo before. Output is written to a file first,
+        # and the file is what gets searched.
+        #
+        # TestData/test.dmp is tracked (.gitignore ignores *.dmp, then
+        # re-includes App/TestData/*.dmp), so it is already in the
+        # checkout and needs no download.
+        run: |
+          FIXTURE=TestData/test.dmp
+          CLI=.build/release/minidumptruck-cli
+          OUT=$(mktemp -d)
+          FAILED=0
+
+          # Release, not debug: the release binary is what ships, and a
+          # failure that only appears under optimisation would otherwise
+          # go unnoticed until a user hit it.
+          swift build -c release --product minidumptruck-cli
+
+          if "$CLI" info "$FIXTURE" > "$OUT/info.txt" 2>&1; then
+            INFO_RC=0
+          else
+            INFO_RC=$?
+          fi
+          cat "$OUT/info.txt"
+
+          if [ "$INFO_RC" -ne 0 ]; then
+            echo "FAIL: 'info' exited $INFO_RC, expected 0."
+            FAILED=1
+          fi
+
+          if grep -q 'Streams: 9' "$OUT/info.txt"; then
+            echo "OK: 'info' reported the expected stream count."
+          else
+            echo "FAIL: 'info' did not report 'Streams: 9' for test.dmp — the binary ran but did not parse the fixture."
+            FAILED=1
+          fi
+
+          if "$CLI" analyze "$FIXTURE" > "$OUT/analyze.txt" 2>&1; then
+            ANALYZE_RC=0
+          else
+            ANALYZE_RC=$?
+          fi
+          cat "$OUT/analyze.txt"
+
+          if [ "$ANALYZE_RC" -eq 2 ]; then
+            echo "OK: 'analyze' exited 2, the documented crash-detected code."
+          else
+            echo "FAIL: 'analyze' exited $ANALYZE_RC, expected 2 (crash detected) for test.dmp."
+            FAILED=1
+          fi
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "Linux CLI smoke test failed — the shipped binary does not work on Linux."
+            exit 1
+          fi

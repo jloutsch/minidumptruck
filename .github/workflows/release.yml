@@ -73,3 +73,78 @@ jobs:
               ARGS+=(--notes-start-tag "$PREV_TAG")
           fi
           gh release create "$GITHUB_REF_NAME" "${ARGS[@]}" "$DMG"
+
+  release-linux:
+    name: Build Linux CLI and attach to release
+    # Runs after the macOS job rather than beside it: that job is what
+    # creates the Release object, and this one uploads into it. In
+    # parallel the upload could reach GitHub before the release exists.
+    #
+    # The consequence of that ordering is worth knowing: if this job
+    # fails, the release still exists with the DMG attached and no Linux
+    # asset, rather than not existing at all. Re-running this job alone
+    # is enough to add the missing asset.
+    needs: release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        # Same pin as the job above and as both CI jobs — bump them
+        # together.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Build the CLI in the pinned Swift image
+        # The same swift:6.1-noble image the Linux CI job pins, driven
+        # through `docker run` instead of the job-level `container:` key.
+        # That image ships no gh, curl or jq, so a job running entirely
+        # inside it could build this artifact but had no way to attach it
+        # to the release. Splitting the difference — toolchain in the
+        # image, publish on the host where GitHub preinstalls gh — keeps
+        # the build reproducible against the pinned toolchain without
+        # adding a third-party action to pin and track.
+        #
+        # --static-swift-stdlib links the Swift runtime into the binary so
+        # the download does not require a matching Swift toolchain. It
+        # does NOT produce a fully static binary; see the packaging step.
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src/App swift:6.1-noble \
+              swift build -c release --static-swift-stdlib --product minidumptruck-cli
+
+      - name: Package tarball and checksum
+        # ubuntu-latest runners are x86_64, so the architecture in the
+        # asset name is a statement about this runner. It is spelled out
+        # rather than left implied because the macOS asset beside it is
+        # arm64, and a bare "linux" name would not say which.
+        #
+        # The binary comes out of the container owned by root; `install`
+        # copies it into a staging dir with normal ownership and an
+        # explicit mode, so the tarball does not carry root ownership or
+        # a surprising permission bit to whoever extracts it.
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          BIN=App/.build/release/minidumptruck-cli
+          if [[ ! -x "$BIN" ]]; then
+              echo "ERROR: expected $BIN to exist after the build step" >&2
+              exit 1
+          fi
+
+          ARCHIVE="minidumptruck-cli-${VERSION}-linux-x86_64.tar.gz"
+          mkdir -p stage
+          install -m 0755 "$BIN" stage/minidumptruck-cli
+          tar -czf "$ARCHIVE" -C stage minidumptruck-cli
+          sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+          cat "$ARCHIVE.sha256"
+
+          # Recorded in the log next to the checksum so the runtime
+          # dependency is visible to anyone auditing a published asset,
+          # not only to readers of CLI.md.
+          echo "Runtime dependency: libcurl4 (everything else this binary needs ships in a base Ubuntu image)."
+
+          # The upload step needs this name too; recomputing the version
+          # string there invites the two copies to drift.
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "$ARCHIVE" "$ARCHIVE.sha256"
