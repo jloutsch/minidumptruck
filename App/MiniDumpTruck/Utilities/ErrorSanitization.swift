@@ -13,10 +13,17 @@ import Foundation
 ///    chars can corrupt terminal output and forge log lines.
 ///
 /// ## Callers
-/// Use at any stderr/log/ticketable surface — CLI batch error lines,
-/// future file-log writers, anywhere users might copy-paste output into
-/// a bug report. Native AppKit/SwiftUI surfaces don't need this; they
-/// handle control chars safely on their own.
+/// Use at any surface where an error string is shown, written, or
+/// copied — stderr and CLI batch error lines, file-log writers,
+/// exported report files, and user-facing alert text.
+///
+/// AppKit/SwiftUI alerts render control characters safely on their
+/// own, so for the *injection* concern they need no help. They are
+/// still callers because of the *disclosure* concern: an alert that
+/// interpolates `localizedDescription` puts the user's absolute path
+/// on screen, and from there into a screenshot or a pasted ticket.
+/// `OpenError.errorDescription` routes through `reason(for:)` for
+/// exactly that reason.
 public enum ErrorSanitization {
     /// Default cap for general output strings (error reasons, etc.).
     public static let defaultMaxLength = 512

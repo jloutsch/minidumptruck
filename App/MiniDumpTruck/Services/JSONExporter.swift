@@ -60,7 +60,7 @@ public struct JSONExporter: Sendable {
     /// version emitted malformed output that broke downstream
     /// `jq` / `json.loads`).
     static func encodeErrorFallback(_ error: Error) -> String {
-        let fallback = ["error": "Failed to encode report: \(error.localizedDescription)"]
+        let fallback = ["error": "Failed to encode report: \(ErrorSanitization.reason(for: error))"]
         if let data = try? JSONEncoder().encode(fallback),
            let json = String(data: data, encoding: .utf8) {
             return json

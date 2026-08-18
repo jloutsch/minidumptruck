@@ -25,6 +25,42 @@ struct InputPipelineIngestTests {
         }
     }
 
+    @Test func missingFileFailureDoesNotLeakAbsolutePath() async throws {
+        // End-to-end: a real unreadable file drives the pipeline's failure
+        // path, and the resulting alert text must not carry the path.
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("Secret Folder-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("crash.dmp")
+
+        // Verify the failure genuinely produces a name-bearing description,
+        // so the negative assertions below are not vacuous. On current macOS
+        // a Cocoa file error renders the quoted filename rather than the full
+        // path, so `crash.dmp` is the assertion that actually bites; the
+        // directory/path assertions guard against an OS that embeds more.
+        var rawDescription = ""
+        do {
+            _ = try Data(contentsOf: url, options: .mappedIfSafe)
+            Issue.record("expected reading a nonexistent file to throw")
+        } catch {
+            rawDescription = error.localizedDescription
+        }
+        #expect(rawDescription.contains("crash.dmp"),
+                "precondition: the raw description must embed the filename")
+
+        let outcome = await InputPipeline.ingest(url: url)
+        guard case .failed(let openError) = outcome else {
+            Issue.record("expected .failed, got \(outcome)")
+            return
+        }
+        let msg = try #require(openError.errorDescription)
+        #expect(!msg.contains(url.path))
+        #expect(!msg.contains("crash.dmp"))
+        #expect(!msg.contains("Secret Folder"))
+        #expect(!msg.contains(NSTemporaryDirectory()))
+    }
+
     @Test func textFileFailsAsNotAMinidump() async throws {
         let url = try writeTempFile(name: "text", body: Data("hello".utf8))
         defer { try? FileManager.default.removeItem(at: url) }
