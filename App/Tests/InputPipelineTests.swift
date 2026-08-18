@@ -34,27 +34,40 @@ struct InputPipelineIngestTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("crash.dmp")
 
-        // Verify the failure genuinely produces a name-bearing description,
-        // so the negative assertions below are not vacuous. On current macOS
-        // a Cocoa file error renders the quoted filename rather than the full
-        // path, so `crash.dmp` is the assertion that actually bites; the
-        // directory/path assertions guard against an OS that embeds more.
-        var rawDescription = ""
-        do {
-            _ = try Data(contentsOf: url, options: .mappedIfSafe)
-            Issue.record("expected reading a nonexistent file to throw")
-        } catch {
-            rawDescription = error.localizedDescription
-        }
-        #expect(rawDescription.contains("crash.dmp"),
+        // Keeps the negative assertions below non-vacuous: prove the sink the
+        // pipeline routes through strips a description that really does carry
+        // the filename and the absolute path. The error is constructed rather
+        // than provoked because Foundation renders file-error descriptions
+        // differently per platform — macOS embeds the quoted filename, Linux
+        // renders only "The file doesn't exist." What is under test is our
+        // sanitizer, not Foundation's wording.
+        let leaky = NSError(
+            domain: NSCocoaErrorDomain,
+            code: NSFileReadNoSuchFileError,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "The file “crash.dmp” couldn't be opened because there is no such file. Path: \(url.path)",
+                NSFilePathErrorKey: url.path
+            ]
+        )
+        #expect(leaky.localizedDescription.contains("crash.dmp"),
                 "precondition: the raw description must embed the filename")
+        #expect(leaky.localizedDescription.contains(url.path),
+                "precondition: the raw description must embed the absolute path")
+        let wrapped = try #require(OpenError.corruptedMinidump(underlying: leaky).errorDescription)
+        #expect(wrapped.contains("file not found"))
+        #expect(!wrapped.contains(url.path))
+        #expect(!wrapped.contains("crash.dmp"))
+        #expect(!wrapped.contains("Secret Folder"))
 
+        // End-to-end, the real failure reaches that same sink.
         let outcome = await InputPipeline.ingest(url: url)
         guard case .failed(let openError) = outcome else {
             Issue.record("expected .failed, got \(outcome)")
             return
         }
         let msg = try #require(openError.errorDescription)
+        #expect(msg.contains("file not found"))
         #expect(!msg.contains(url.path))
         #expect(!msg.contains("crash.dmp"))
         #expect(!msg.contains("Secret Folder"))

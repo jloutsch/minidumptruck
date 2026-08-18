@@ -23,20 +23,26 @@ struct OpenErrorTests {
     }
 
     @Test func corruptedMinidumpDoesNotLeakPathFromFileError() throws {
-        // A real Cocoa file error whose localizedDescription embeds the
-        // user's filename. Verify it genuinely does before asserting it's
-        // gone, so this cannot silently become a vacuous test. The filename
-        // is the half that actually leaks on current macOS; the broader
-        // path assertions guard against an OS that embeds the full path.
+        // A Cocoa file error whose localizedDescription embeds the user's
+        // filename and absolute path. Verify it genuinely does before
+        // asserting it's gone, so this cannot silently become a vacuous
+        // test. The description is supplied rather than left to Foundation
+        // to derive: macOS renders the quoted filename, Linux renders only
+        // "The file doesn't exist." What is under test is our sanitizer,
+        // not Foundation's wording, so the test states the input itself.
         let path = "/Users/someone/Secret Folder/crash.dmp"
         let underlying = NSError(
             domain: NSCocoaErrorDomain,
             code: NSFileReadNoSuchFileError,
-            userInfo: [NSFilePathErrorKey: path,
+            userInfo: [NSLocalizedDescriptionKey:
+                        "The file “crash.dmp” couldn't be opened because there is no such file. Path: \(path)",
+                       NSFilePathErrorKey: path,
                        NSURLErrorKey: URL(fileURLWithPath: path)]
         )
         #expect(underlying.localizedDescription.contains("crash.dmp"),
                 "precondition: the raw description must embed the filename")
+        #expect(underlying.localizedDescription.contains(path),
+                "precondition: the raw description must embed the absolute path")
 
         let msg = try #require(OpenError.corruptedMinidump(underlying: underlying).errorDescription)
         #expect(msg.contains("truncated or corrupt"))
@@ -112,20 +118,28 @@ struct OpenErrorTests {
     }
 
     @Test func zipExtractFailedDoesNotLeakPathFromFileError() throws {
+        // Description supplied rather than derived: Foundation words file
+        // errors differently per platform (macOS quotes the filename, Linux
+        // omits it), and the subject of this test is our sanitizer.
         let path = "/Users/someone/Secret Folder/out.dmp"
         let underlying = NSError(
             domain: NSCocoaErrorDomain,
             code: NSFileWriteNoPermissionError,
-            userInfo: [NSFilePathErrorKey: path,
+            userInfo: [NSLocalizedDescriptionKey:
+                        "You don't have permission to save the file “out.dmp”. Path: \(path)",
+                       NSFilePathErrorKey: path,
                        NSURLErrorKey: URL(fileURLWithPath: path)]
         )
         #expect(underlying.localizedDescription.contains("out.dmp"),
                 "precondition: the raw description must embed the filename")
+        #expect(underlying.localizedDescription.contains(path),
+                "precondition: the raw description must embed the absolute path")
 
         let err = OpenError.zipExtractFailed(entry: "crash.dmp", underlying: underlying)
         let msg = try #require(err.errorDescription)
         #expect(msg.contains("permission denied"))
         #expect(!msg.contains(path))
+        #expect(!msg.contains("out.dmp"))
         #expect(!msg.contains("Secret Folder"))
         #expect(!msg.contains("/Users/"))
     }

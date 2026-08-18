@@ -251,21 +251,29 @@ struct JSONExporterTests {
     }
 
     @Test func errorFallbackDoesNotLeakPathFromFileError() throws {
+        // Description supplied rather than derived: Foundation words file
+        // errors differently per platform (macOS quotes the filename, Linux
+        // omits it), and the subject of this test is our sanitizer.
         let path = "/Users/someone/Secret Folder/report.json"
         let underlying = NSError(
             domain: NSCocoaErrorDomain,
             code: NSFileWriteNoPermissionError,
-            userInfo: [NSFilePathErrorKey: path,
+            userInfo: [NSLocalizedDescriptionKey:
+                        "You don't have permission to save the file “report.json”. Path: \(path)",
+                       NSFilePathErrorKey: path,
                        NSURLErrorKey: URL(fileURLWithPath: path)]
         )
         #expect(underlying.localizedDescription.contains("report.json"),
                 "precondition: the raw description must embed the filename")
+        #expect(underlying.localizedDescription.contains(path),
+                "precondition: the raw description must embed the absolute path")
 
         let json = JSONExporter.encodeErrorFallback(underlying)
         let parsed = try JSONSerialization.jsonObject(with: Data(json.utf8)) as! [String: Any]
         let message = try #require(parsed["error"] as? String)
         #expect(message.contains("permission denied"))
         #expect(!message.contains(path))
+        #expect(!message.contains("report.json"))
         #expect(!message.contains("Secret Folder"))
         #expect(!message.contains("/Users/"))
     }
