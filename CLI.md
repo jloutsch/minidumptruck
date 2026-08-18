@@ -17,6 +17,35 @@ cd App && swift build -c release
 # Binary at App/.build/release/minidumptruck-cli
 ```
 
+### macOS
+
+Each release publishes a prebuilt Apple Silicon binary as
+`minidumptruck-cli-<version>-macos-arm64.tar.gz`, with a matching
+`.sha256` file. Verify and extract it with:
+
+```bash
+shasum -a 256 -c minidumptruck-cli-<version>-macos-arm64.tar.gz.sha256
+tar -xzf minidumptruck-cli-<version>-macos-arm64.tar.gz
+```
+
+Apple Silicon only — there is no Intel or universal build. On an Intel
+Mac, build from source as above.
+
+The binary carries only the ad-hoc signature the Swift toolchain
+applies automatically, which is what lets it run on Apple Silicon at
+all. It is **not** Developer ID signed or notarized. What that means in
+practice depends on how you unpack it:
+
+- Extracting with `tar` in the terminal, as above, does not propagate
+  the quarantine flag, and the binary runs.
+- Downloading through a browser and unpacking with Finder's Archive
+  Utility does propagate it, and macOS refuses to run the result. Clear
+  it with:
+
+  ```bash
+  xattr -d com.apple.quarantine minidumptruck-cli
+  ```
+
 ### Linux
 
 Each release publishes a prebuilt x86_64 Linux binary as

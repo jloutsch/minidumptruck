@@ -1,7 +1,8 @@
 name: Release
 
-# Build a signed (ad-hoc) .app, package it into a DMG, and attach it
-# to a GitHub Release whenever a `v*` tag is pushed.
+# Build the macOS artifacts — a signed (ad-hoc) .app wrapped in a DMG,
+# and the CLI as a tarball — with a SHA-256 file beside each, and
+# attach them to a GitHub Release whenever a `v*` tag is pushed.
 #
 # Trigger flow:
 #   1. git tag v0.1.0  (locally)
@@ -24,7 +25,7 @@ permissions:
 
 jobs:
   release:
-    name: Build DMG and publish release
+    name: Build macOS assets and publish release
     # macos-15 = Apple Silicon w/ Xcode 16 (Swift 6.x). macos-14 ships
     # Swift 5.9 which can't compile swift-argument-parser 1.7.0+
     # (Swift-6-only feature). The produced app's deployment target
@@ -44,7 +45,7 @@ jobs:
           swift --version
           xcodebuild -version
 
-      - name: Build .app + DMG
+      - name: Build .app, DMG, CLI tarball and checksums
         run: |
           # GITHUB_REF_NAME is "v0.1.0" for a `v*` tag push; strip the
           # leading `v` so the bundle version matches semver convention.
@@ -57,11 +58,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          DMG="build/release/MiniDumpTruck-${VERSION}-arm64.dmg"
-          if [[ ! -f "$DMG" ]]; then
-              echo "ERROR: expected $DMG to exist after build step" >&2
-              exit 1
-          fi
+          # Every asset build-app.sh produces. Each is checked before
+          # the upload rather than after: `gh release create` with a
+          # missing path publishes the release and then fails, leaving
+          # a half-populated release that a rerun cannot recreate.
+          ASSETS=(
+              "build/release/MiniDumpTruck-${VERSION}-arm64.dmg"
+              "build/release/MiniDumpTruck-${VERSION}-arm64.dmg.sha256"
+              "build/release/minidumptruck-cli-${VERSION}-macos-arm64.tar.gz"
+              "build/release/minidumptruck-cli-${VERSION}-macos-arm64.tar.gz.sha256"
+          )
+          for asset in "${ASSETS[@]}"; do
+              if [[ ! -f "$asset" ]]; then
+                  echo "ERROR: expected $asset to exist after build step" >&2
+                  exit 1
+              fi
+          done
           # `--generate-notes` pulls the auto-generated changelog from
           # merged PR titles between this tag and the previous one.
           # On the FIRST release there is no previous tag, so we
@@ -72,7 +84,7 @@ jobs:
           if [[ -n "$PREV_TAG" ]]; then
               ARGS+=(--notes-start-tag "$PREV_TAG")
           fi
-          gh release create "$GITHUB_REF_NAME" "${ARGS[@]}" "$DMG"
+          gh release create "$GITHUB_REF_NAME" "${ARGS[@]}" "${ASSETS[@]}"
 
   release-linux:
     name: Build Linux CLI and attach to release

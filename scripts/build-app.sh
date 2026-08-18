@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# Bundle the SwiftPM MiniDumpTruck executable into a macOS .app and
-# wrap it in a DMG suitable for ad-hoc sharing.
+# Build every macOS release artifact: bundle the SwiftPM MiniDumpTruck
+# executable into a .app, wrap it in a DMG, package the CLI as a
+# tarball, and write a SHA-256 file beside each.
 #
 # Usage:
 #   scripts/build-app.sh [VERSION]
@@ -11,15 +12,28 @@
 #
 # Outputs under build/release/:
 #   - MiniDumpTruck.app
-#   - MiniDumpTruck-<version>-arm64.dmg
+#   - MiniDumpTruck-<version>-arm64.dmg               + .sha256
+#   - minidumptruck-cli-<version>-macos-arm64.tar.gz  + .sha256
+#
+# The release workflow uploads all four files. Packaging lives here
+# rather than inline in .github/workflows/release.yml so it can be run
+# and verified locally — that workflow has never executed, so shell
+# living only inside it would ship unproven.
 #
 # Constraints / non-goals:
 #   - Ad-hoc codesign only (`codesign --sign -`). Recipients will see
 #     Gatekeeper's "cannot verify developer" prompt on first launch and
 #     must right-click → Open. Full Developer ID + notarization is
-#     issue #5.
-#   - Apple Silicon (arm64) only. Universal binaries are a separate
-#     concern, deferred until any actual Intel user reports a need.
+#     issue #5. The CLI binary carries only the ad-hoc signature the
+#     toolchain applies automatically (arm64 macOS refuses to run an
+#     entirely unsigned Mach-O); it is not signed here either.
+#   - Apple Silicon (arm64) only, for both artifacts. Universal
+#     binaries are a separate concern, deferred until any actual Intel
+#     user reports a need.
+#   - Per-artifact .sha256 files, not one aggregate SHA256SUMS. The
+#     Linux assets are produced by a different job on a different
+#     runner, so a combined manifest would need cross-job coordination.
+#     This matches what the Linux job already publishes.
 #   - Sandbox entitlements are preserved from the committed file. The
 #     `user-selected.read-only` grant covers NSOpenPanel +
 #     drag-and-drop, which is the only file access pattern the app
@@ -112,7 +126,11 @@ echo "→ Creating DMG at $DMG_PATH"
 # /Applications so the recipient can drag-install with one motion
 # inside the mounted DMG — the convention every signed Mac DMG uses.
 STAGE_DIR="$(mktemp -d)"
-trap 'rm -rf "$STAGE_DIR"' EXIT
+# Both staging dirs are declared here and cleaned by a single trap. A
+# second `trap ... EXIT` further down would REPLACE this one rather
+# than add to it, silently leaking whichever directory it displaced.
+CLI_STAGE_DIR="$(mktemp -d)"
+trap 'rm -rf "$STAGE_DIR" "$CLI_STAGE_DIR"' EXIT
 cp -R "$APP_BUNDLE" "$STAGE_DIR/"
 ln -s /Applications "$STAGE_DIR/Applications"
 
@@ -123,8 +141,53 @@ hdiutil create \
     -format UDZO \
     "$DMG_PATH"
 
+CLI_NAME="minidumptruck-cli"
+CLI_ARCHIVE="$BUILD_DIR/${CLI_NAME}-${EFFECTIVE_VERSION}-macos-arm64.tar.gz"
+
+echo "→ Building $CLI_NAME (release, arm64)"
+(cd "$APP_SRC_DIR" && swift build -c release --arch arm64 --product "$CLI_NAME")
+
+CLI_BINARY="$APP_SRC_DIR/.build/arm64-apple-macosx/release/$CLI_NAME"
+# Same guard the .app binary gets above. Without it a failed or
+# relocated build would package nothing and still exit 0, shipping an
+# empty asset that nobody notices until a user downloads it.
+if [[ ! -x "$CLI_BINARY" ]]; then
+    echo "ERROR: expected binary at $CLI_BINARY but it's missing or not executable" >&2
+    exit 1
+fi
+
+echo "→ Packaging $CLI_ARCHIVE"
+# `install` rather than `cp`: it sets the mode explicitly, so the
+# extracted binary is 0755 for whoever unpacks it regardless of the
+# builder's umask. Staged into its own directory so the tarball's root
+# holds the binary alone.
+install -m 0755 "$CLI_BINARY" "$CLI_STAGE_DIR/$CLI_NAME"
+tar -czf "$CLI_ARCHIVE" -C "$CLI_STAGE_DIR" "$CLI_NAME"
+
+echo "→ Writing SHA-256 checksums"
+# `shasum -a 256`, not `sha256sum`: shasum is part of the macOS base
+# system, while sha256sum comes from Homebrew coreutils and is not
+# something we can count on being present on the release runner. The
+# output format is identical, so a user can verify a macOS asset with
+# `sha256sum -c` on Linux and vice versa.
+#
+# Generated from inside BUILD_DIR so each file records a bare
+# basename. A checksum file naming a build-machine path verifies fine
+# here and fails for every user who downloads it into their own
+# directory.
+(
+    cd "$BUILD_DIR"
+    for artifact in "$(basename "$DMG_PATH")" "$(basename "$CLI_ARCHIVE")"; do
+        shasum -a 256 "$artifact" > "$artifact.sha256"
+        cat "$artifact.sha256"
+    done
+)
+
 echo
 echo "✓ Built $DMG_PATH"
+echo "✓ Built $CLI_ARCHIVE"
+echo "  Both have a .sha256 beside them; verify with"
+echo "  \`shasum -a 256 -c <file>.sha256\`."
 echo "  Recipients on first launch will need to right-click the app"
 echo "  → Open (Gatekeeper bypass), then trust it once. Full"
 echo "  notarization removes that step; see issue #5."
