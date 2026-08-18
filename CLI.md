@@ -17,6 +17,36 @@ cd App && swift build -c release
 # Binary at App/.build/release/minidumptruck-cli
 ```
 
+### Linux
+
+Each release publishes a prebuilt x86_64 Linux binary as
+`minidumptruck-cli-<version>-linux-x86_64.tar.gz`, with a matching
+`.sha256` file. Verify and extract it with:
+
+```bash
+sha256sum -c minidumptruck-cli-<version>-linux-x86_64.tar.gz.sha256
+tar -xzf minidumptruck-cli-<version>-linux-x86_64.tar.gz
+```
+
+The Swift runtime is linked into the binary, so no Swift toolchain is
+needed to run it. It is not fully static, though, and it requires one
+shared library that is **not** part of a minimal Ubuntu install:
+
+```bash
+sudo apt-get install -y libcurl4
+```
+
+Ubuntu Desktop already has `libcurl4`; minimal server installs and
+container base images generally do not. Without it the binary does not
+start at all, failing before it prints anything:
+
+```
+error while loading shared libraries: libcurl.so.4
+```
+
+Everything else it links against (`libz`, `libstdc++`, `libgcc_s`,
+`libm`, `libc`) is present in a stock Ubuntu 24.04 image.
+
 ## Quick Start
 
 ```bash
