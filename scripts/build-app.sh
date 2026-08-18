@@ -130,7 +130,8 @@ STAGE_DIR="$(mktemp -d)"
 # second `trap ... EXIT` further down would REPLACE this one rather
 # than add to it, silently leaking whichever directory it displaced.
 CLI_STAGE_DIR="$(mktemp -d)"
-trap 'rm -rf "$STAGE_DIR" "$CLI_STAGE_DIR"' EXIT
+VERIFY_DIR="$(mktemp -d)"
+trap 'rm -rf "$STAGE_DIR" "$CLI_STAGE_DIR" "$VERIFY_DIR"' EXIT
 cp -R "$APP_BUNDLE" "$STAGE_DIR/"
 ln -s /Applications "$STAGE_DIR/Applications"
 
@@ -163,6 +164,23 @@ echo "→ Packaging $CLI_ARCHIVE"
 # holds the binary alone.
 install -m 0755 "$CLI_BINARY" "$CLI_STAGE_DIR/$CLI_NAME"
 tar -czf "$CLI_ARCHIVE" -C "$CLI_STAGE_DIR" "$CLI_NAME"
+
+echo "→ Verifying the packaged CLI"
+# Check what actually went into the tarball rather than the build
+# output beside it, by extracting somewhere clean and running it. The
+# existing `-x` guard proves a file is there; it does not prove the
+# archive holds a runnable binary of the architecture its own name
+# claims. Since the release workflow has never executed, the first
+# person to find that out should not be someone who downloaded a
+# release. Runs before the checksums so a bad archive never gets one.
+tar -xzf "$CLI_ARCHIVE" -C "$VERIFY_DIR"
+CLI_ARCHS=$(lipo -archs "$VERIFY_DIR/$CLI_NAME")
+if [[ "$CLI_ARCHS" != "arm64" ]]; then
+    echo "ERROR: $CLI_ARCHIVE holds '$CLI_ARCHS' but its name claims arm64" >&2
+    exit 1
+fi
+"$VERIFY_DIR/$CLI_NAME" --help > /dev/null
+echo "  extracted binary is $CLI_ARCHS and --help exits 0"
 
 echo "→ Writing SHA-256 checksums"
 # `shasum -a 256`, not `sha256sum`: shasum is part of the macOS base
