@@ -19,6 +19,19 @@ cd App && swift build -c release
 # Binary at App/.build/release/minidumptruck-cli
 ```
 
+Or download the prebuilt Apple Silicon binary from a release, as
+`minidumptruck-cli-<version>-macos-arm64.tar.gz` with a matching `.sha256`:
+
+```bash
+shasum -a 256 -c minidumptruck-cli-<version>-macos-arm64.tar.gz.sha256
+tar -xzf minidumptruck-cli-<version>-macos-arm64.tar.gz
+```
+
+It is ad-hoc signed, not notarized. Unpacking with `tar` as above runs fine;
+unpacking a browser download with Finder's Archive Utility sets the quarantine
+flag and macOS refuses to run the result, which `xattr -d com.apple.quarantine
+minidumptruck-cli` clears.
+
 ## Quick Start
 
 ```bash
