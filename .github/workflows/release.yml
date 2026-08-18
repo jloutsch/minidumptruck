@@ -23,6 +23,19 @@ on:
 permissions:
   contents: write
 
+# One release run per tag at a time. Two runs racing the same tag — a
+# rerun started while the first is still publishing, or a tag deleted
+# and re-pushed — would contend for the same release object and the
+# same asset names, producing duplicate-upload failures or a release
+# assembled from two different builds.
+#
+# cancel-in-progress is deliberately false: cancelling a run that is
+# midway through uploading assets is how you get the half-populated
+# release this workflow now works to avoid. Queue instead.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Build macOS assets and publish release
@@ -34,11 +47,39 @@ jobs:
     runs-on: macos-15
 
     steps:
+      - name: Validate the tag is a release version
+        # `on.push.tags: v*` also matches `v`, `vfoo`, and names with a
+        # slash. Everything downstream strips one leading `v` and feeds
+        # the rest into plist versions and asset filenames, so a
+        # malformed tag either fails deep in the build or publishes
+        # assets nobody can name. Fail here instead, before anything is
+        # built and long before a release object exists.
+        #
+        # GITHUB_REF_NAME goes through the environment rather than a
+        # `${{ }}` expression: a tag name is attacker-controllable by
+        # anyone who can push one, and interpolating it directly into a
+        # run block is a script-injection sink.
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "ERROR: tag '$TAG' is not a release version (expected vMAJOR.MINOR.PATCH[-prerelease])" >&2
+              exit 1
+          fi
+          echo "Tag $TAG accepted"
+
       - name: Checkout
         # Pinned by full commit SHA per code-standards.md (no `@v6`
         # floating reference). Update by bumping both the SHA and the
         # trailing comment when a new release ships.
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          # Full history + tags. The release-notes step below runs
+          # `git describe --tags HEAD^` to find the previous tag, which
+          # silently finds nothing under the default depth-1 checkout —
+          # so `--notes-start-tag` was being omitted and notes generated
+          # from the wrong range on every release after the first.
+          fetch-depth: 0
 
       - name: Show toolchain
         run: |
@@ -84,7 +125,30 @@ jobs:
           if [[ -n "$PREV_TAG" ]]; then
               ARGS+=(--notes-start-tag "$PREV_TAG")
           fi
-          gh release create "$GITHUB_REF_NAME" "${ARGS[@]}" "${ASSETS[@]}"
+
+          # Created as a DRAFT, and published only by the last step of
+          # the Linux job once all six assets are attached.
+          #
+          # Before this, `gh release create` published and uploaded in
+          # one non-atomic call: any upload, network, or runner failure
+          # after creation left a PUBLIC release missing assets, and a
+          # rerun then failed because the release already existed. A
+          # draft is invisible to watchers, webhooks, and the "latest
+          # release" endpoint until it is published, so a failed run now
+          # leaves something incomplete-but-private rather than
+          # incomplete-and-announced.
+          #
+          # The create/upload split makes a rerun work rather than fail:
+          # a first run creates the draft, a rerun finds it and clobbers
+          # the assets in place. `gh release view` is the existence test
+          # because it succeeds for drafts too, which `gh release list`
+          # does not reliably do.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+              echo "Release $GITHUB_REF_NAME already exists — re-uploading macOS assets"
+              gh release upload "$GITHUB_REF_NAME" "${ASSETS[@]}" --clobber
+          else
+              gh release create "$GITHUB_REF_NAME" --draft "${ARGS[@]}" "${ASSETS[@]}"
+          fi
 
   release-linux:
     name: Build Linux CLI and attach to release
@@ -119,7 +183,19 @@ jobs:
         # the download does not require a matching Swift toolchain. It
         # does NOT produce a fully static binary; see the packaging step.
         run: |
-          docker run --rm -v "$PWD:/src" -w /src/App swift:6.1-noble \
+          # Pinned by DIGEST, not by the `6.1-noble` tag. A tag is
+          # mutable: whoever controls it can retarget it, and this job
+          # would then build a different binary and publish a matching
+          # checksum for it — the checksum attests to whatever came out
+          # of the image, so it cannot detect this. The repo already
+          # pins GitHub Actions by commit SHA for exactly this reason;
+          # the base image was the inconsistent one.
+          #
+          # This is the multi-arch index digest, so it resolves on both
+          # amd64 and arm64. Bump it deliberately when moving Swift
+          # versions, and bump ci.yml's copy in the same commit.
+          docker run --rm -v "$PWD:/src" -w /src/App \
+              swift@sha256:fddaf02db3d41844916167ef4d199d5ca14c6003d052a0b9ab579646a9c720ec \
               swift build -c release --static-swift-stdlib --product minidumptruck-cli
 
       - name: Package tarball and checksum
@@ -159,4 +235,23 @@ jobs:
       - name: Attach to release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" "$ARCHIVE" "$ARCHIVE.sha256"
+        # --clobber makes this step re-runnable. Without it, a run where
+        # the archive uploaded and the checksum did not left the release
+        # holding a binary nobody could verify, and rerunning failed on
+        # the duplicate archive BEFORE it reached the missing checksum —
+        # so the one recovery action available made no progress.
+        run: gh release upload "$GITHUB_REF_NAME" "$ARCHIVE" "$ARCHIVE.sha256" --clobber
+
+      - name: Publish the release
+        # The last step of the last job, and the only one that makes the
+        # release public. Everything above assembles a draft; if any of
+        # it fails, the draft stays a draft and nobody sees a release
+        # missing half its assets.
+        #
+        # Re-running this on an already-published release is a no-op
+        # rather than an error, so a partial rerun cannot get stuck here.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit "$GITHUB_REF_NAME" --draft=false
+          echo "Published $GITHUB_REF_NAME with all assets attached."

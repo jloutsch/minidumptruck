@@ -92,9 +92,15 @@ jobs:
     # would add a third-party supply-chain dependency to pin and track.
     # Noble is the current Ubuntu LTS. Swift 6.1 matches the macOS job's
     # toolchain series so a failure here is attributable to the platform
-    # rather than to a compiler-version difference. Pinned tag, never
-    # `latest`, for the same reason the checkout action is SHA-pinned.
-    container: swift:6.1-noble
+    # rather than to a compiler-version difference.
+    #
+    # Pinned by DIGEST. This comment used to say "pinned tag ... for the
+    # same reason the checkout action is SHA-pinned", which did not
+    # follow: `6.1-noble` is mutable and a commit SHA is not, so the tag
+    # gave none of the immutability the comparison claimed. This is the
+    # multi-arch index digest for swift:6.1-noble; bump it deliberately
+    # when moving Swift versions, together with release.yml's copy.
+    container: swift@sha256:fddaf02db3d41844916167ef4d199d5ca14c6003d052a0b9ab579646a9c720ec
 
     steps:
       - name: Checkout
