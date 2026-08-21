@@ -27,3 +27,13 @@ dist/MiniDumpTruck.app/
 App/dist/
 # Release artifacts produced by scripts/build-app.sh
 build/
+wiki-draft/
+
+# Multi-agent loop queue: per-repo runtime state, never committed.
+# Anchored to the repo root so it does not also match scripts/multi-agent/.
+/multi-agent/
+
+# Worktrees created by scripts/new-worktree.sh. These are git worktrees —
+# checkouts of this same repo — so committing them would nest the repo inside
+# itself.
+/.worktrees/
